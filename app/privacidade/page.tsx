@@ -34,12 +34,12 @@ export default function PrivacyPage() {
               </div>
             </div>
 
-            <Button asChild variant="outline">
-              <Link href="/">
-                <ArrowLeft className="mr-2 h-4 w-4" />
-                Voltar
-              </Link>
-            </Button>
+           <Button asChild variant="outline">
+  <Link href="/conta">
+    <ArrowLeft className="mr-2 h-4 w-4" />
+    Voltar para conta
+  </Link>
+</Button>
           </div>
         </header>
 
