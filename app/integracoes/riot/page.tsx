@@ -7,6 +7,7 @@ import {
   ArrowLeft,
   CheckCircle2,
   Clock,
+  Download,
   Gamepad2,
   Link2,
   Save,
@@ -42,6 +43,20 @@ type RiotAccount = {
   updated_at: string;
 };
 
+type RiotImportedMatch = {
+  id: string;
+  user_id: string;
+  riot_account_id: string;
+  game: string;
+  external_match_id: string;
+  started_at: string | null;
+  duration_seconds: number | null;
+  queue_id: number | null;
+  summary: string | null;
+  result_label: string | null;
+  created_at: string;
+};
+
 type RiotLookupResponse = {
   puuid?: string;
   gameName?: string;
@@ -65,6 +80,11 @@ type RiotMatchesResponse = {
   error?: string;
 };
 
+type RiotImportResponse = {
+  importedMatch?: RiotImportedMatch;
+  error?: string;
+};
+
 const regionLabels: Record<RiotRegion, string> = {
   americas: "Americas",
   europe: "Europe",
@@ -85,6 +105,10 @@ export default function RiotIntegrationPage() {
   const [region, setRegion] = useState<RiotRegion>("americas");
 
   const [accounts, setAccounts] = useState<RiotAccount[]>([]);
+  const [importedMatches, setImportedMatches] = useState<RiotImportedMatch[]>(
+    []
+  );
+
   const [selectedAccountId, setSelectedAccountId] = useState("");
   const [selectedGame, setSelectedGame] = useState<RiotGame>("lol");
   const [riotMatches, setRiotMatches] = useState<RiotMatchSummary[]>([]);
@@ -93,16 +117,17 @@ export default function RiotIntegrationPage() {
   const [isConnecting, setIsConnecting] = useState(false);
   const [isSearchingMatches, setIsSearchingMatches] = useState(false);
   const [deletingId, setDeletingId] = useState<string | null>(null);
+  const [importingMatchId, setImportingMatchId] = useState<string | null>(null);
 
   const selectedAccount =
     accounts.find((account) => account.id === selectedAccountId) ?? null;
 
   useEffect(() => {
-    loadAccounts();
+    loadInitialData();
     // eslint-disable-next-line react-hooks/exhaustive-deps
   }, []);
 
-  async function loadAccounts() {
+  async function loadInitialData() {
     setIsLoading(true);
 
     const {
@@ -116,26 +141,64 @@ export default function RiotIntegrationPage() {
       return;
     }
 
-    const { data, error } = await supabase
+    const { data: accountsData, error: accountsError } = await supabase
       .from("riot_accounts")
       .select("*")
       .eq("user_id", user.id)
       .order("created_at", { ascending: false });
 
-    if (error) {
-      toast.error(error.message);
+    if (accountsError) {
+      toast.error(accountsError.message);
       setIsLoading(false);
       return;
     }
 
-    const loadedAccounts = data ?? [];
+    const { data: importedData, error: importedError } = await supabase
+      .from("riot_imported_matches")
+      .select(
+        "id, user_id, riot_account_id, game, external_match_id, started_at, duration_seconds, queue_id, summary, result_label, created_at"
+      )
+      .eq("user_id", user.id)
+      .order("created_at", { ascending: false });
+
+    if (importedError) {
+      toast.error(importedError.message);
+      setIsLoading(false);
+      return;
+    }
+
+    const loadedAccounts = accountsData ?? [];
     setAccounts(loadedAccounts);
+    setImportedMatches(importedData ?? []);
 
     if (loadedAccounts.length > 0 && !selectedAccountId) {
       setSelectedAccountId(loadedAccounts[0].id);
     }
 
     setIsLoading(false);
+  }
+
+  async function reloadImportedMatches() {
+    const {
+      data: { user },
+    } = await supabase.auth.getUser();
+
+    if (!user) return;
+
+    const { data, error } = await supabase
+      .from("riot_imported_matches")
+      .select(
+        "id, user_id, riot_account_id, game, external_match_id, started_at, duration_seconds, queue_id, summary, result_label, created_at"
+      )
+      .eq("user_id", user.id)
+      .order("created_at", { ascending: false });
+
+    if (error) {
+      toast.error(error.message);
+      return;
+    }
+
+    setImportedMatches(data ?? []);
   }
 
   async function handleConnectRiot(event: React.FormEvent<HTMLFormElement>) {
@@ -223,7 +286,7 @@ export default function RiotIntegrationPage() {
     toast.success("Conta Riot conectada com sucesso.");
     setGameName("");
     setTagLine("");
-    await loadAccounts();
+    await loadInitialData();
   }
 
   async function handleSearchMatches() {
@@ -272,6 +335,57 @@ export default function RiotIntegrationPage() {
     }
   }
 
+  async function handleImportMatch(match: RiotMatchSummary) {
+    if (!selectedAccount) {
+      toast.error("Selecione uma conta Riot conectada.");
+      return;
+    }
+
+    setImportingMatchId(match.externalMatchId);
+
+    const {
+      data: { session },
+    } = await supabase.auth.getSession();
+
+    if (!session?.access_token) {
+      setImportingMatchId(null);
+      toast.error("Sessão expirada. Faça login novamente.");
+      router.push("/login");
+      return;
+    }
+
+    try {
+      const response = await fetch("/api/riot/import", {
+        method: "POST",
+        headers: {
+          "Content-Type": "application/json",
+          Authorization: `Bearer ${session.access_token}`,
+        },
+        body: JSON.stringify({
+          externalMatchId: match.externalMatchId,
+          game: match.game,
+          region: selectedAccount.region,
+          riotAccountId: selectedAccount.id,
+        }),
+      });
+
+      const data = (await response.json()) as RiotImportResponse;
+
+      setImportingMatchId(null);
+
+      if (!response.ok) {
+        toast.error(data.error ?? "Não foi possível importar a partida.");
+        return;
+      }
+
+      toast.success("Partida importada com sucesso.");
+      await reloadImportedMatches();
+    } catch {
+      setImportingMatchId(null);
+      toast.error("Erro ao importar partida.");
+    }
+  }
+
   async function handleDeleteAccount(accountId: string) {
     setDeletingId(accountId);
 
@@ -294,7 +408,13 @@ export default function RiotIntegrationPage() {
       setSelectedAccountId("");
     }
 
-    await loadAccounts();
+    await loadInitialData();
+  }
+
+  function isMatchImported(externalMatchId: string) {
+    return importedMatches.some(
+      (match) => match.external_match_id === externalMatchId
+    );
   }
 
   if (isLoading) {
@@ -328,8 +448,8 @@ export default function RiotIntegrationPage() {
                 </h1>
 
                 <p className="mt-2 max-w-2xl text-sm leading-6 text-slate-500">
-                  Conecte uma Riot ID, busque partidas reais e prepare análises
-                  futuras com estatísticas oficiais de League of Legends e TFT.
+                  Conecte uma Riot ID, busque partidas reais e importe dados
+                  oficiais para análises futuras de League of Legends e TFT.
                 </p>
               </div>
             </div>
@@ -415,7 +535,7 @@ export default function RiotIntegrationPage() {
 
           <Card>
             <CardHeader>
-              <CardTitle>Por que conectar?</CardTitle>
+              <CardTitle>Status da integração</CardTitle>
             </CardHeader>
 
             <CardContent className="space-y-4">
@@ -425,12 +545,31 @@ export default function RiotIntegrationPage() {
                 </div>
 
                 <p className="text-sm font-black text-slate-950">
-                  Próximo passo: importar partidas
+                  {accounts.length} conta
+                  {accounts.length === 1 ? "" : "s"} conectada
+                  {accounts.length === 1 ? "" : "s"}
                 </p>
 
                 <p className="mt-2 text-sm leading-6 text-slate-500">
-                  Depois dessa etapa, o Ascend poderá transformar partidas reais
-                  em diagnósticos muito mais precisos.
+                  Você já pode buscar partidas recentes e importar o JSON bruto
+                  da Riot para análise.
+                </p>
+              </div>
+
+              <div className="rounded-3xl border border-slate-200 bg-slate-50/80 p-5">
+                <div className="mb-3 flex h-11 w-11 items-center justify-center rounded-2xl border border-sky-200 bg-white text-sky-600">
+                  <Download className="h-5 w-5" />
+                </div>
+
+                <p className="text-sm font-black text-slate-950">
+                  {importedMatches.length} partida
+                  {importedMatches.length === 1 ? "" : "s"} importada
+                  {importedMatches.length === 1 ? "" : "s"}
+                </p>
+
+                <p className="mt-2 text-sm leading-6 text-slate-500">
+                  Próximo bloco: transformar essas partidas importadas em
+                  diagnósticos automáticos reais.
                 </p>
               </div>
 
@@ -444,8 +583,8 @@ export default function RiotIntegrationPage() {
                 </p>
 
                 <p className="mt-2 text-sm leading-6 text-slate-500">
-                  A chave da Riot fica no servidor. O navegador só recebe os
-                  dados necessários da conta e das partidas.
+                  A chave da Riot fica no servidor. O navegador só recebe dados
+                  necessários da conta e das partidas.
                 </p>
               </div>
             </CardContent>
@@ -525,8 +664,8 @@ export default function RiotIntegrationPage() {
               Buscar últimas partidas
             </h2>
             <p className="mt-1 text-sm text-slate-500">
-              Liste partidas recentes encontradas pela Riot API. Importação e
-              análise profunda entram no próximo passo.
+              Liste partidas recentes encontradas pela Riot API e importe o JSON
+              bruto para análise futura.
             </p>
           </div>
 
@@ -600,51 +739,154 @@ export default function RiotIntegrationPage() {
 
               {riotMatches.length > 0 ? (
                 <div className="space-y-3">
-                  {riotMatches.map((match) => (
-                    <div
-                      key={match.externalMatchId}
-                      className="rounded-3xl border border-slate-200 bg-white p-4 shadow-sm"
-                    >
-                      <div className="flex flex-col gap-4 sm:flex-row sm:items-start sm:justify-between">
-                        <div>
-                          <div className="mb-2 flex flex-wrap items-center gap-2">
-                            <Badge>{gameLabels[match.game]}</Badge>
-                            <Badge variant="outline">{match.resultLabel}</Badge>
-                            {match.queueId ? (
+                  {riotMatches.map((match) => {
+                    const imported = isMatchImported(match.externalMatchId);
+                    const importing = importingMatchId === match.externalMatchId;
+
+                    return (
+                      <div
+                        key={match.externalMatchId}
+                        className="rounded-3xl border border-slate-200 bg-white p-4 shadow-sm"
+                      >
+                        <div className="flex flex-col gap-4 sm:flex-row sm:items-start sm:justify-between">
+                          <div>
+                            <div className="mb-2 flex flex-wrap items-center gap-2">
+                              <Badge>{gameLabels[match.game]}</Badge>
                               <Badge variant="outline">
-                                Queue {match.queueId}
+                                {match.resultLabel}
                               </Badge>
-                            ) : null}
+                              {match.queueId ? (
+                                <Badge variant="outline">
+                                  Queue {match.queueId}
+                                </Badge>
+                              ) : null}
+                              {imported ? (
+                                <Badge>
+                                  <CheckCircle2 className="mr-1 h-3.5 w-3.5" />
+                                  Importada
+                                </Badge>
+                              ) : null}
+                            </div>
+
+                            <p className="font-black text-slate-950">
+                              {match.summary}
+                            </p>
+
+                            <p className="mt-2 text-sm leading-6 text-slate-500">
+                              {match.startedAt
+                                ? formatDateTime(match.startedAt)
+                                : "Data não identificada"}
+                              {match.durationSeconds
+                                ? ` • ${formatDuration(match.durationSeconds)}`
+                                : ""}
+                            </p>
+
+                            <p className="mt-2 break-all text-xs leading-5 text-slate-400">
+                              ID: {match.externalMatchId}
+                            </p>
                           </div>
 
-                          <p className="font-black text-slate-950">
-                            {match.summary}
-                          </p>
-
-                          <p className="mt-2 text-sm leading-6 text-slate-500">
-                            {match.startedAt
-                              ? formatDateTime(match.startedAt)
-                              : "Data não identificada"}
-                            {match.durationSeconds
-                              ? ` • ${formatDuration(match.durationSeconds)}`
-                              : ""}
-                          </p>
-
-                          <p className="mt-2 break-all text-xs leading-5 text-slate-400">
-                            ID: {match.externalMatchId}
-                          </p>
+                          <Button
+                            variant={imported ? "outline" : "default"}
+                            disabled={imported || importing}
+                            onClick={() => handleImportMatch(match)}
+                          >
+                            <Download className="mr-2 h-4 w-4" />
+                            {imported
+                              ? "Já importada"
+                              : importing
+                                ? "Importando..."
+                                : "Importar partida"}
+                          </Button>
                         </div>
-
-                        <Button variant="outline" disabled>
-                          Importar em breve
-                        </Button>
                       </div>
-                    </div>
-                  ))}
+                    );
+                  })}
                 </div>
               ) : null}
             </CardContent>
           </Card>
+        </section>
+
+        <section>
+          <div className="mb-4 flex flex-col gap-2 sm:flex-row sm:items-end sm:justify-between">
+            <div>
+              <h2 className="text-2xl font-black tracking-tight text-slate-950">
+                Partidas importadas
+              </h2>
+              <p className="mt-1 text-sm text-slate-500">
+                Dados brutos já salvos no Supabase para análise futura.
+              </p>
+            </div>
+
+            <Badge variant="outline">
+              {importedMatches.length} importada
+              {importedMatches.length === 1 ? "" : "s"}
+            </Badge>
+          </div>
+
+          <div className="space-y-3">
+            {importedMatches.map((match) => (
+              <div
+                key={match.id}
+                className="rounded-3xl border border-slate-200 bg-white/90 p-4 shadow-sm"
+              >
+                <div className="flex flex-col gap-3 sm:flex-row sm:items-start sm:justify-between">
+                  <div>
+                    <div className="mb-2 flex flex-wrap gap-2">
+                      <Badge>
+                        {match.game === "lol"
+                          ? "League of Legends"
+                          : "Teamfight Tactics"}
+                      </Badge>
+                      {match.result_label ? (
+                        <Badge variant="outline">{match.result_label}</Badge>
+                      ) : null}
+                      {match.queue_id ? (
+                        <Badge variant="outline">Queue {match.queue_id}</Badge>
+                      ) : null}
+                    </div>
+
+                    <p className="font-black text-slate-950">
+                      {match.summary ?? "Partida importada"}
+                    </p>
+
+                    <p className="mt-2 text-sm leading-6 text-slate-500">
+                      {match.started_at
+                        ? formatDateTime(match.started_at)
+                        : "Data não identificada"}
+                      {match.duration_seconds
+                        ? ` • ${formatDuration(match.duration_seconds)}`
+                        : ""}
+                    </p>
+
+                    <p className="mt-2 break-all text-xs leading-5 text-slate-400">
+                      ID: {match.external_match_id}
+                    </p>
+                  </div>
+
+                  <Badge>
+                    <CheckCircle2 className="mr-1 h-3.5 w-3.5" />
+                    Salva
+                  </Badge>
+                </div>
+              </div>
+            ))}
+
+            {importedMatches.length === 0 ? (
+              <Card>
+                <CardContent className="p-6">
+                  <p className="text-sm font-bold text-slate-950">
+                    Nenhuma partida importada ainda.
+                  </p>
+                  <p className="mt-2 text-sm leading-6 text-slate-500">
+                    Busque partidas recentes acima e clique em importar para
+                    salvar o JSON bruto no Supabase.
+                  </p>
+                </CardContent>
+              </Card>
+            ) : null}
+          </div>
         </section>
       </div>
     </main>
@@ -669,10 +911,9 @@ function formatDateTime(value: string) {
 
 function formatDuration(seconds: number) {
   const minutes = Math.floor(seconds / 60);
-  const remainingSeconds = seconds % 60;
 
   if (minutes <= 0) {
-    return `${remainingSeconds}s`;
+    return `${seconds}s`;
   }
 
   return `${minutes}min`;
