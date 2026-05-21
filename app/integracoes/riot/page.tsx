@@ -6,9 +6,11 @@ import { useRouter } from "next/navigation";
 import {
   ArrowLeft,
   CheckCircle2,
+  Clock,
   Gamepad2,
   Link2,
   Save,
+  Search,
   ShieldCheck,
   Trash2,
 } from "lucide-react";
@@ -27,6 +29,7 @@ import { Label } from "@/components/ui/label";
 import { supabase } from "@/lib/supabase/client";
 
 type RiotRegion = "americas" | "europe" | "asia" | "sea";
+type RiotGame = "lol" | "tft";
 
 type RiotAccount = {
   id: string;
@@ -47,11 +50,31 @@ type RiotLookupResponse = {
   error?: string;
 };
 
+type RiotMatchSummary = {
+  externalMatchId: string;
+  game: "lol" | "tft";
+  startedAt: string | null;
+  durationSeconds: number | null;
+  queueId: number | null;
+  summary: string;
+  resultLabel: string;
+};
+
+type RiotMatchesResponse = {
+  matches?: RiotMatchSummary[];
+  error?: string;
+};
+
 const regionLabels: Record<RiotRegion, string> = {
   americas: "Americas",
   europe: "Europe",
   asia: "Asia",
   sea: "SEA",
+};
+
+const gameLabels: Record<RiotGame, string> = {
+  lol: "League of Legends",
+  tft: "Teamfight Tactics",
 };
 
 export default function RiotIntegrationPage() {
@@ -62,9 +85,17 @@ export default function RiotIntegrationPage() {
   const [region, setRegion] = useState<RiotRegion>("americas");
 
   const [accounts, setAccounts] = useState<RiotAccount[]>([]);
+  const [selectedAccountId, setSelectedAccountId] = useState("");
+  const [selectedGame, setSelectedGame] = useState<RiotGame>("lol");
+  const [riotMatches, setRiotMatches] = useState<RiotMatchSummary[]>([]);
+
   const [isLoading, setIsLoading] = useState(true);
   const [isConnecting, setIsConnecting] = useState(false);
+  const [isSearchingMatches, setIsSearchingMatches] = useState(false);
   const [deletingId, setDeletingId] = useState<string | null>(null);
+
+  const selectedAccount =
+    accounts.find((account) => account.id === selectedAccountId) ?? null;
 
   useEffect(() => {
     loadAccounts();
@@ -97,7 +128,13 @@ export default function RiotIntegrationPage() {
       return;
     }
 
-    setAccounts(data ?? []);
+    const loadedAccounts = data ?? [];
+    setAccounts(loadedAccounts);
+
+    if (loadedAccounts.length > 0 && !selectedAccountId) {
+      setSelectedAccountId(loadedAccounts[0].id);
+    }
+
     setIsLoading(false);
   }
 
@@ -189,6 +226,52 @@ export default function RiotIntegrationPage() {
     await loadAccounts();
   }
 
+  async function handleSearchMatches() {
+    if (!selectedAccount) {
+      toast.error("Selecione uma conta Riot conectada.");
+      return;
+    }
+
+    setIsSearchingMatches(true);
+    setRiotMatches([]);
+
+    try {
+      const response = await fetch("/api/riot/matches", {
+        method: "POST",
+        headers: {
+          "Content-Type": "application/json",
+        },
+        body: JSON.stringify({
+          puuid: selectedAccount.puuid,
+          region: selectedAccount.region,
+          game: selectedGame,
+          count: 10,
+        }),
+      });
+
+      const data = (await response.json()) as RiotMatchesResponse;
+
+      setIsSearchingMatches(false);
+
+      if (!response.ok) {
+        toast.error(data.error ?? "Não foi possível buscar partidas.");
+        return;
+      }
+
+      setRiotMatches(data.matches ?? []);
+
+      if (!data.matches || data.matches.length === 0) {
+        toast.info("Nenhuma partida encontrada para esse jogo.");
+        return;
+      }
+
+      toast.success("Partidas carregadas com sucesso.");
+    } catch {
+      setIsSearchingMatches(false);
+      toast.error("Erro ao consultar partidas no servidor.");
+    }
+  }
+
   async function handleDeleteAccount(accountId: string) {
     setDeletingId(accountId);
 
@@ -205,6 +288,12 @@ export default function RiotIntegrationPage() {
     }
 
     toast.success("Conta Riot removida.");
+    setRiotMatches([]);
+
+    if (selectedAccountId === accountId) {
+      setSelectedAccountId("");
+    }
+
     await loadAccounts();
   }
 
@@ -239,8 +328,8 @@ export default function RiotIntegrationPage() {
                 </h1>
 
                 <p className="mt-2 max-w-2xl text-sm leading-6 text-slate-500">
-                  Conecte uma Riot ID para preparar importação futura de
-                  partidas reais de League of Legends e Teamfight Tactics.
+                  Conecte uma Riot ID, busque partidas reais e prepare análises
+                  futuras com estatísticas oficiais de League of Legends e TFT.
                 </p>
               </div>
             </div>
@@ -302,7 +391,7 @@ export default function RiotIntegrationPage() {
                     onChange={(event) =>
                       setRegion(event.target.value as RiotRegion)
                     }
-                    className="h-11 w-full px-3 text-sm"
+                    className="h-11 w-full rounded-2xl border border-slate-200 bg-white px-3 text-sm shadow-sm outline-none transition focus:border-sky-300 focus:ring-4 focus:ring-sky-100"
                   >
                     <option value="americas">Americas</option>
                     <option value="europe">Europe</option>
@@ -340,9 +429,8 @@ export default function RiotIntegrationPage() {
                 </p>
 
                 <p className="mt-2 text-sm leading-6 text-slate-500">
-                  Depois dessa etapa, o Ascend poderá buscar partidas reais e
-                  gerar diagnósticos muito mais precisos com estatísticas
-                  oficiais.
+                  Depois dessa etapa, o Ascend poderá transformar partidas reais
+                  em diagnósticos muito mais precisos.
                 </p>
               </div>
 
@@ -357,7 +445,7 @@ export default function RiotIntegrationPage() {
 
                 <p className="mt-2 text-sm leading-6 text-slate-500">
                   A chave da Riot fica no servidor. O navegador só recebe os
-                  dados necessários da conta conectada.
+                  dados necessários da conta e das partidas.
                 </p>
               </div>
             </CardContent>
@@ -430,7 +518,162 @@ export default function RiotIntegrationPage() {
             ) : null}
           </div>
         </section>
+
+        <section>
+          <div className="mb-4">
+            <h2 className="text-2xl font-black tracking-tight text-slate-950">
+              Buscar últimas partidas
+            </h2>
+            <p className="mt-1 text-sm text-slate-500">
+              Liste partidas recentes encontradas pela Riot API. Importação e
+              análise profunda entram no próximo passo.
+            </p>
+          </div>
+
+          <Card>
+            <CardContent className="space-y-5 p-5">
+              <div className="grid gap-5 md:grid-cols-3">
+                <div className="space-y-2">
+                  <Label className="text-sm font-semibold text-slate-700">
+                    Conta Riot
+                  </Label>
+                  <select
+                    value={selectedAccountId}
+                    onChange={(event) => {
+                      setSelectedAccountId(event.target.value);
+                      setRiotMatches([]);
+                    }}
+                    className="h-11 w-full rounded-2xl border border-slate-200 bg-white px-3 text-sm shadow-sm outline-none transition focus:border-sky-300 focus:ring-4 focus:ring-sky-100"
+                  >
+                    {accounts.map((account) => (
+                      <option key={account.id} value={account.id}>
+                        {account.game_name}#{account.tag_line}
+                      </option>
+                    ))}
+                  </select>
+                </div>
+
+                <div className="space-y-2">
+                  <Label className="text-sm font-semibold text-slate-700">
+                    Jogo
+                  </Label>
+                  <select
+                    value={selectedGame}
+                    onChange={(event) => {
+                      setSelectedGame(event.target.value as RiotGame);
+                      setRiotMatches([]);
+                    }}
+                    className="h-11 w-full rounded-2xl border border-slate-200 bg-white px-3 text-sm shadow-sm outline-none transition focus:border-sky-300 focus:ring-4 focus:ring-sky-100"
+                  >
+                    <option value="lol">League of Legends</option>
+                    <option value="tft">Teamfight Tactics</option>
+                  </select>
+                </div>
+
+                <div className="flex items-end">
+                  <Button
+                    className="h-11 w-full"
+                    disabled={
+                      isSearchingMatches || accounts.length === 0 || !selectedAccount
+                    }
+                    onClick={handleSearchMatches}
+                  >
+                    <Search className="mr-2 h-4 w-4" />
+                    {isSearchingMatches
+                      ? "Buscando..."
+                      : "Buscar últimas partidas"}
+                  </Button>
+                </div>
+              </div>
+
+              {accounts.length === 0 ? (
+                <div className="rounded-3xl border border-slate-200 bg-slate-50/80 p-5">
+                  <p className="text-sm font-bold text-slate-950">
+                    Conecte uma Riot ID primeiro.
+                  </p>
+                  <p className="mt-2 text-sm leading-6 text-slate-500">
+                    Depois de conectar, você poderá buscar partidas recentes de
+                    LoL ou TFT.
+                  </p>
+                </div>
+              ) : null}
+
+              {riotMatches.length > 0 ? (
+                <div className="space-y-3">
+                  {riotMatches.map((match) => (
+                    <div
+                      key={match.externalMatchId}
+                      className="rounded-3xl border border-slate-200 bg-white p-4 shadow-sm"
+                    >
+                      <div className="flex flex-col gap-4 sm:flex-row sm:items-start sm:justify-between">
+                        <div>
+                          <div className="mb-2 flex flex-wrap items-center gap-2">
+                            <Badge>{gameLabels[match.game]}</Badge>
+                            <Badge variant="outline">{match.resultLabel}</Badge>
+                            {match.queueId ? (
+                              <Badge variant="outline">
+                                Queue {match.queueId}
+                              </Badge>
+                            ) : null}
+                          </div>
+
+                          <p className="font-black text-slate-950">
+                            {match.summary}
+                          </p>
+
+                          <p className="mt-2 text-sm leading-6 text-slate-500">
+                            {match.startedAt
+                              ? formatDateTime(match.startedAt)
+                              : "Data não identificada"}
+                            {match.durationSeconds
+                              ? ` • ${formatDuration(match.durationSeconds)}`
+                              : ""}
+                          </p>
+
+                          <p className="mt-2 break-all text-xs leading-5 text-slate-400">
+                            ID: {match.externalMatchId}
+                          </p>
+                        </div>
+
+                        <Button variant="outline" disabled>
+                          Importar em breve
+                        </Button>
+                      </div>
+                    </div>
+                  ))}
+                </div>
+              ) : null}
+            </CardContent>
+          </Card>
+        </section>
       </div>
     </main>
   );
+}
+
+function formatDateTime(value: string) {
+  const date = new Date(value);
+
+  if (Number.isNaN(date.getTime())) {
+    return "Data inválida";
+  }
+
+  return new Intl.DateTimeFormat("pt-BR", {
+    day: "2-digit",
+    month: "2-digit",
+    year: "numeric",
+    hour: "2-digit",
+    minute: "2-digit",
+  }).format(date);
+}
+
+function formatDuration(seconds: number) {
+  const minutes = Math.floor(seconds / 60);
+  const remainingSeconds = seconds % 60;
+
+  if (minutes <= 0) {
+    return `${remainingSeconds}s`;
+  }
+
+  return `${minutes}min`;
 }
