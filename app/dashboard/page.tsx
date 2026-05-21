@@ -78,6 +78,8 @@ type WeeklyGoal = {
   created_at: string;
 };
 
+type PeriodFilter = "7d" | "30d" | "all";
+
 const goalLabels: Record<string, string> = {
   subir_rank: "Subir rank",
   melhorar_mecanica: "Melhorar mecânica",
@@ -133,6 +135,7 @@ export default function DashboardPage() {
   const [userEmail, setUserEmail] = useState<string>("");
   const [isLoading, setIsLoading] = useState(true);
   const [completingGoalId, setCompletingGoalId] = useState<string | null>(null);
+  const [periodFilter, setPeriodFilter] = useState<PeriodFilter>("30d");
 
   const selectedGoals = useMemo(() => {
     if (!playerProfile?.main_goal) return [];
@@ -148,53 +151,70 @@ export default function DashboardPage() {
     (goal) => goal.status === "completed"
   );
 
-  const recentMatches = matches.slice(0, 5);
+  const periodMatches = useMemo(() => {
+    return filterByPeriod(matches, periodFilter);
+  }, [matches, periodFilter]);
+
+  const periodGoals = useMemo(() => {
+    return filterByPeriod(weeklyGoals, periodFilter);
+  }, [weeklyGoals, periodFilter]);
+
+  const periodActiveGoals = periodGoals.filter(
+    (goal) => goal.status === "active"
+  );
+
+  const periodCompletedGoals = periodGoals.filter(
+    (goal) => goal.status === "completed"
+  );
+
+  const recentMatches = periodMatches.slice(0, 5);
 
   const gameChartData = useMemo(() => {
     return Object.entries(gameLabels).map(([game, label]) => ({
       name: shortGameName(label),
-      total: matches.filter((match) => match.game === game).length,
+      total: periodMatches.filter((match) => match.game === game).length,
     }));
-  }, [matches]);
+  }, [periodMatches]);
 
   const resultChartData = useMemo(() => {
     const grouped = [
       {
         name: "Vitórias",
-        value: matches.filter((match) => match.result === "win").length,
+        value: periodMatches.filter((match) => match.result === "win").length,
       },
       {
         name: "Derrotas",
-        value: matches.filter((match) => match.result === "loss").length,
+        value: periodMatches.filter((match) => match.result === "loss").length,
       },
       {
         name: "Top 4",
-        value: matches.filter((match) => match.result === "top_4").length,
+        value: periodMatches.filter((match) => match.result === "top_4").length,
       },
       {
         name: "Bottom 4",
-        value: matches.filter((match) => match.result === "bottom_4").length,
+        value: periodMatches.filter((match) => match.result === "bottom_4")
+          .length,
       },
     ];
 
     return grouped.filter((item) => item.value > 0);
-  }, [matches]);
+  }, [periodMatches]);
 
   const goalsChartData = useMemo(() => {
     return [
       {
         name: "Ativas",
-        value: activeGoals.length,
+        value: periodActiveGoals.length,
       },
       {
         name: "Concluídas",
-        value: completedGoals.length,
+        value: periodCompletedGoals.length,
       },
     ].filter((item) => item.value > 0);
-  }, [activeGoals.length, completedGoals.length]);
+  }, [periodActiveGoals.length, periodCompletedGoals.length]);
 
   const winRate = useMemo(() => {
-    const rankedResults = matches.filter((match) =>
+    const rankedResults = periodMatches.filter((match) =>
       ["win", "loss"].includes(match.result)
     );
 
@@ -203,10 +223,10 @@ export default function DashboardPage() {
     const wins = rankedResults.filter((match) => match.result === "win").length;
 
     return Math.round((wins / rankedResults.length) * 100);
-  }, [matches]);
+  }, [periodMatches]);
 
   const topFourRate = useMemo(() => {
-    const tftResults = matches.filter((match) =>
+    const tftResults = periodMatches.filter((match) =>
       ["top_4", "bottom_4"].includes(match.result)
     );
 
@@ -216,7 +236,7 @@ export default function DashboardPage() {
       .length;
 
     return Math.round((topFour / tftResults.length) * 100);
-  }, [matches]);
+  }, [periodMatches]);
 
   useEffect(() => {
     loadDashboard();
@@ -377,57 +397,72 @@ export default function DashboardPage() {
             icon={<Trophy className="h-5 w-5" />}
             label="Metas ativas"
             value={String(activeGoals.length)}
-            description="Focos práticos gerados pelos reviews."
+            description="Focos práticos atuais gerados pelos reviews."
           />
 
           <MetricCard
             icon={<Gamepad2 className="h-5 w-5" />}
-            label="Partidas registradas"
-            value={String(matches.length)}
-            description="Histórico total registrado no Ascend."
+            label="Partidas no período"
+            value={String(periodMatches.length)}
+            description={`Filtro atual: ${periodLabel(periodFilter)}.`}
           />
         </section>
 
         <section>
-          <div className="mb-4">
-            <h2 className="text-2xl font-black tracking-tight text-slate-950">
-              Painel de evolução
-            </h2>
-            <p className="mt-1 text-sm text-slate-500">
-              Uma visão rápida do seu volume de jogo, resultados e metas.
-            </p>
+          <div className="mb-4 flex flex-col gap-3 sm:flex-row sm:items-end sm:justify-between">
+            <div>
+              <h2 className="text-2xl font-black tracking-tight text-slate-950">
+                Painel de evolução
+              </h2>
+              <p className="mt-1 text-sm text-slate-500">
+                Uma visão rápida do seu volume de jogo, resultados e metas no
+                período selecionado.
+              </p>
+            </div>
+
+            <PeriodSelector
+              value={periodFilter}
+              onChange={setPeriodFilter}
+            />
           </div>
 
           <div className="grid gap-4 xl:grid-cols-4">
             <EvolutionCard
               label="Taxa de vitória"
-              value={matches.length > 0 ? `${winRate}%` : "0%"}
+              value={periodMatches.length > 0 ? `${winRate}%` : "0%"}
               description="Baseada em partidas com vitória/derrota."
             />
 
             <EvolutionCard
               label="Taxa de Top 4"
-              value={matches.length > 0 ? `${topFourRate}%` : "0%"}
+              value={periodMatches.length > 0 ? `${topFourRate}%` : "0%"}
               description="Baseada em partidas de TFT registradas."
             />
 
             <EvolutionCard
               label="Metas concluídas"
-              value={String(completedGoals.length)}
-              description="Quantidade total de metas finalizadas."
+              value={String(periodCompletedGoals.length)}
+              description="Metas finalizadas no período selecionado."
             />
 
             <EvolutionCard
               label="Consistência"
-              value={matches.length >= 5 ? "Ativa" : "Inicial"}
-              description="Registre mais partidas para leitura melhor."
+              value={periodMatches.length >= 5 ? "Ativa" : "Inicial"}
+              description={
+                periodMatches.length >= 5
+                  ? "Volume suficiente para começar a ler padrões."
+                  : "Registre mais partidas para leitura melhor."
+              }
             />
           </div>
         </section>
 
         <section className="grid gap-6 lg:grid-cols-2">
-          <ChartCard title="Partidas por jogo" description="Volume registrado por modalidade.">
-            {matches.length > 0 ? (
+          <ChartCard
+            title="Partidas por jogo"
+            description={`Volume registrado em ${periodLabel(periodFilter).toLowerCase()}.`}
+          >
+            {periodMatches.length > 0 ? (
               <ResponsiveContainer width="100%" height={260}>
                 <BarChart data={gameChartData}>
                   <CartesianGrid strokeDasharray="3 3" stroke="#e2e8f0" />
@@ -448,7 +483,10 @@ export default function DashboardPage() {
             )}
           </ChartCard>
 
-          <ChartCard title="Resultados" description="Distribuição dos resultados registrados.">
+          <ChartCard
+            title="Resultados"
+            description={`Distribuição dos resultados em ${periodLabel(periodFilter).toLowerCase()}.`}
+          >
             {resultChartData.length > 0 ? (
               <ResponsiveContainer width="100%" height={260}>
                 <PieChart>
@@ -489,7 +527,8 @@ export default function DashboardPage() {
                 <div>
                   <CardTitle>Foco atual da semana</CardTitle>
                   <p className="mt-2 text-sm leading-6 text-slate-500">
-                    Metas criadas automaticamente a partir dos seus diagnósticos.
+                    Metas ativas criadas automaticamente a partir dos seus
+                    diagnósticos.
                   </p>
                 </div>
 
@@ -604,7 +643,7 @@ export default function DashboardPage() {
 
               <div className="rounded-3xl border border-slate-200 bg-gradient-to-br from-white to-sky-50/70 p-4 shadow-sm">
                 <p className="text-sm font-bold text-slate-950">
-                  Metas
+                  Metas no período
                 </p>
 
                 {goalsChartData.length > 0 ? (
@@ -635,15 +674,16 @@ export default function DashboardPage() {
                   </ResponsiveContainer>
                 ) : (
                   <p className="mt-2 text-sm leading-6 text-slate-500">
-                    Nenhuma meta criada ainda.
+                    Nenhuma meta criada no período.
                   </p>
                 )}
 
                 <p className="text-sm leading-6 text-slate-500">
-                  {completedGoals.length} concluída
-                  {completedGoals.length === 1 ? "" : "s"} e{" "}
-                  {activeGoals.length} ativa
-                  {activeGoals.length === 1 ? "" : "s"}.
+                  {periodCompletedGoals.length} concluída
+                  {periodCompletedGoals.length === 1 ? "" : "s"} e{" "}
+                  {periodActiveGoals.length} ativa
+                  {periodActiveGoals.length === 1 ? "" : "s"} em{" "}
+                  {periodLabel(periodFilter).toLowerCase()}.
                 </p>
               </div>
             </CardContent>
@@ -683,7 +723,7 @@ export default function DashboardPage() {
             <CardHeader>
               <div className="flex flex-col gap-3 sm:flex-row sm:items-start sm:justify-between">
                 <div>
-                  <CardTitle>Últimas partidas</CardTitle>
+                  <CardTitle>Últimas partidas no período</CardTitle>
                   <p className="mt-2 text-sm leading-6 text-slate-500">
                     Clique em uma partida para ver detalhes e diagnóstico.
                   </p>
@@ -727,7 +767,7 @@ export default function DashboardPage() {
 
               {recentMatches.length === 0 ? (
                 <p className="text-sm text-slate-500">
-                  Nenhuma partida registrada ainda.
+                  Nenhuma partida registrada nesse período.
                 </p>
               ) : null}
             </CardContent>
@@ -755,6 +795,43 @@ export default function DashboardPage() {
         </section>
       </div>
     </main>
+  );
+}
+
+function PeriodSelector({
+  value,
+  onChange,
+}: {
+  value: PeriodFilter;
+  onChange: (value: PeriodFilter) => void;
+}) {
+  const options: { value: PeriodFilter; label: string }[] = [
+    { value: "7d", label: "7 dias" },
+    { value: "30d", label: "30 dias" },
+    { value: "all", label: "Tudo" },
+  ];
+
+  return (
+    <div className="flex w-full rounded-2xl border border-slate-200 bg-white p-1 shadow-sm sm:w-fit">
+      {options.map((option) => {
+        const isActive = value === option.value;
+
+        return (
+          <button
+            key={option.value}
+            type="button"
+            onClick={() => onChange(option.value)}
+            className={`flex-1 rounded-xl px-4 py-2 text-sm font-bold transition sm:flex-none ${
+              isActive
+                ? "bg-sky-500 text-white shadow-[0_8px_20px_rgba(14,165,233,0.22)]"
+                : "text-slate-500 hover:bg-sky-50 hover:text-sky-700"
+            }`}
+          >
+            {option.label}
+          </button>
+        );
+      })}
+    </div>
   );
 }
 
@@ -825,7 +902,7 @@ function EmptyChartMessage() {
   return (
     <div className="flex h-[260px] items-center justify-center rounded-3xl border border-slate-200 bg-slate-50/80 p-6 text-center">
       <p className="text-sm leading-6 text-slate-500">
-        Registre partidas para gerar dados visuais de evolução.
+        Registre partidas nesse período para gerar dados visuais de evolução.
       </p>
     </div>
   );
@@ -894,6 +971,34 @@ function InfoBox({
       </p>
     </div>
   );
+}
+
+function filterByPeriod<T extends { created_at: string }>(
+  items: T[],
+  period: PeriodFilter
+) {
+  if (period === "all") return items;
+
+  const days = period === "7d" ? 7 : 30;
+  const now = new Date();
+  const startDate = new Date(now);
+  startDate.setDate(now.getDate() - days);
+
+  return items.filter((item) => {
+    const itemDate = new Date(item.created_at);
+
+    if (Number.isNaN(itemDate.getTime())) {
+      return false;
+    }
+
+    return itemDate >= startDate;
+  });
+}
+
+function periodLabel(period: PeriodFilter) {
+  if (period === "7d") return "Últimos 7 dias";
+  if (period === "30d") return "Últimos 30 dias";
+  return "Todo o histórico";
 }
 
 function formatDate(value: string) {
