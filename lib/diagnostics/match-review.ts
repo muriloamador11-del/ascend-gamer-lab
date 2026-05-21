@@ -1,13 +1,11 @@
-export type Game = "league_of_legends" | "teamfight_tactics" | "valorant";
-
-export type BaseMatchInput = {
-  game: Game;
+type BaseReviewInput = {
+  game: string;
   result: string;
   mentalState: string;
   notes: string;
 };
 
-export type LolInput = {
+type LolReviewInput = {
   champion: string;
   role: string;
   matchup: string;
@@ -22,7 +20,7 @@ export type LolInput = {
   winCondition: string;
 };
 
-export type TftInput = {
+type TftReviewInput = {
   placement: number | null;
   composition: string;
   levelTiming: string;
@@ -34,7 +32,7 @@ export type TftInput = {
   economyNotes: string;
 };
 
-export type ValorantInput = {
+type ValorantReviewInput = {
   agent: string;
   agentRole: string;
   map: string;
@@ -48,7 +46,14 @@ export type ValorantInput = {
   communicationNotes: string;
 };
 
-export type ReviewOutput = {
+type GenerateMatchReviewInput = {
+  base: BaseReviewInput;
+  lol?: LolReviewInput;
+  tft?: TftReviewInput;
+  valorant?: ValorantReviewInput;
+};
+
+type MatchReviewOutput = {
   diagnosis: string;
   analysis: string;
   correction: string;
@@ -60,387 +65,493 @@ export type ReviewOutput = {
   goal_description: string;
 };
 
-export function generateMatchReview({
-  base,
-  lol,
-  tft,
-  valorant,
-}: {
-  base: BaseMatchInput;
-  lol?: LolInput;
-  tft?: TftInput;
-  valorant?: ValorantInput;
-}): ReviewOutput {
-  if (base.game === "league_of_legends" && lol) {
-    return generateLolReview(base, lol);
+type ReviewRule = {
+  priority: number;
+  diagnosis: string;
+  analysis: string;
+  correction: string;
+  training: string;
+  next_step: string;
+  biggest_mistake: string;
+  recurring_pattern: string;
+  goal_title: string;
+  goal_description: string;
+};
+
+export function generateMatchReview(
+  input: GenerateMatchReviewInput
+): MatchReviewOutput {
+  if (input.base.game === "league_of_legends" && input.lol) {
+    return generateLolReview(input.base, input.lol);
   }
 
-  if (base.game === "teamfight_tactics" && tft) {
-    return generateTftReview(base, tft);
+  if (input.base.game === "teamfight_tactics" && input.tft) {
+    return generateTftReview(input.base, input.tft);
   }
 
-  if (base.game === "valorant" && valorant) {
-    return generateValorantReview(base, valorant);
+  if (input.base.game === "valorant" && input.valorant) {
+    return generateValorantReview(input.base, input.valorant);
   }
 
-  return {
-    diagnosis:
-      "A partida foi registrada, mas ainda não há dados suficientes para um diagnóstico específico.",
-    analysis:
-      "Quanto mais contexto você registrar, mais preciso o Ascend será para encontrar padrões de erro.",
-    correction:
-      "Na próxima partida, registre pelo menos resultado, estado mental, erro percebido e dados principais do jogo.",
-    training:
-      "Faça um review curto de 3 minutos após a partida: o que funcionou, o que custou caro e qual será a próxima meta.",
-    next_step:
-      "Na próxima partida, preencha mais detalhes para receber uma análise mais útil.",
-    biggest_mistake: "Dados insuficientes para identificar o erro mais caro.",
-    recurring_pattern: "Ainda sem padrão recorrente identificado.",
-    goal_title: "Registrar mais contexto da partida",
-    goal_description:
-      "Na próxima partida, registre detalhes suficientes para o Ascend identificar erro mais caro, correção e treino.",
-  };
+  return generateFallbackReview(input.base);
 }
 
-function generateLolReview(base: BaseMatchInput, lol: LolInput): ReviewOutput {
-  const kdaDeaths = lol.deaths;
-  const lowCs10 = lol.cs10 !== null && lol.cs10 > 0 && lol.cs10 < 60;
-  const lowVision =
-    lol.visionScore !== null && lol.visionScore > 0 && lol.visionScore < 15;
-  const diedBeforeObjective = lol.deathsBeforeObjective >= 2;
-  const manyDeaths = kdaDeaths >= 7;
-  const lostLane = normalize(lol.laneResult).includes("perd");
+function generateLolReview(
+  base: BaseReviewInput,
+  lol: LolReviewInput
+): MatchReviewOutput {
+  const champion = clean(lol.champion) || "seu campeão";
+  const role = clean(lol.role) || "sua rota";
+  const matchup = clean(lol.matchup) || "o matchup";
+  const laneResult = lower(lol.laneResult);
+  const winCondition = clean(lol.winCondition) || "sua condição de vitória";
 
-  if (diedBeforeObjective) {
-    return {
-      diagnosis:
-        "Você perdeu impacto por morrer antes de objetivos importantes.",
-      analysis:
-        "Em League of Legends, morrer antes de dragão, arauto ou barão remove sua pressão do mapa e força seu time a ceder espaço ou lutar em desvantagem.",
-      correction:
-        "Prepare o objetivo com antecedência: resete antes, compre controle de visão e evite andar sozinho em região escura do mapa.",
-      training:
-        "Nas próximas 5 partidas, sua meta é chegar 45 segundos antes do objetivo com vida, recurso e visão colocada.",
-      next_step:
-        "Na próxima partida, não lute no minuto anterior ao objetivo sem prioridade de wave e visão mínima.",
-      biggest_mistake: "Morrer antes de objetivo.",
+  const rules: ReviewRule[] = [];
+
+  if (lol.deathsBeforeObjective >= 2) {
+    rules.push({
+      priority: 100,
+      diagnosis: `O erro mais caro foi morrer antes de objetivos. Você registrou ${lol.deathsBeforeObjective} morte(s) antes de objetivo, o que reduz pressão de mapa e entrega janela para o inimigo controlar dragão, arauto, barão ou torre.`,
+      analysis: `Em LoL, morrer antes de objetivo costuma valer mais do que uma morte comum, porque você perde tempo de mapa, visão, pressão de wave e presença na luta. Mesmo que sua lane tenha sido jogável, esse padrão quebra a condição de vitória: ${winCondition}.`,
+      correction: `Antes de objetivo, jogue 60 segundos mais disciplinado: faça reset cedo, compre controle ward, empurre a wave com segurança e evite facecheck. Se não tiver visão, não seja o primeiro a entrar no rio ou jungle inimiga.`,
+      training: `Nas próximas 3 partidas, marque mentalmente todo objetivo grande com 1 minuto de antecedência. Sua missão é chegar vivo, com recurso e em posição. Não procure pick sozinho antes do objetivo.`,
+      next_step: `Na próxima partida de ${champion}, seu foco é estar vivo 45 segundos antes de todo objetivo importante.`,
+      biggest_mistake: "Morrer antes de objetivos e entregar controle de mapa.",
       recurring_pattern:
-        "Risco de macro apressado: entrar em luta ou facecheck antes de preparar o mapa.",
-      goal_title: "Não morrer antes de objetivo",
+        "Risco excessivo em janelas críticas antes de objetivos.",
+      goal_title: "Chegar vivo antes dos objetivos",
       goal_description:
-        "Nas próximas partidas de LoL, chegue 45 segundos antes do objetivo com vida, recurso e visão mínima colocada.",
-    };
+        "Por 3 partidas, chegar vivo 45s antes de dragão/arauto/barão, com reset feito e sem facecheck sem visão.",
+    });
   }
 
-  if (lowVision) {
-    return {
-      diagnosis:
-        "Seu controle de visão parece baixo para uma partida competitiva.",
-      analysis:
-        "Baixa visão reduz sua leitura de jungle, rotações e preparação de objetivos. Isso aumenta mortes evitáveis e lutas ruins.",
-      correction:
-        "Compre pinks, use ward em timers de objetivo e troque a visão quando mudar o lado forte do mapa.",
-      training:
-        "Em 5 partidas, acompanhe seu vision score e force o hábito de wardar antes de avançar no rio ou jungle inimiga.",
-      next_step:
-        "Na próxima partida, compre pelo menos uma pink antes do primeiro objetivo importante.",
-      biggest_mistake: "Baixo controle de visão.",
+  if (lol.cs10 !== null && lol.cs10 > 0 && lol.cs10 < 60) {
+    rules.push({
+      priority: 90,
+      diagnosis: `Seu farm inicial ficou baixo: ${lol.cs10} CS aos 10 minutos. Isso indica perda de recurso básico na fase de rotas, reduzindo item spike e pressão para jogar o mapa.`,
+      analysis: `Mesmo com boas jogadas, CS baixo atrasa seu primeiro ou segundo item. Em ${role}, isso pode fazer você perder prioridade, chegar atrasado em objetivo e depender demais de kill para ficar forte.`,
+      correction: `Reduza trades desnecessários antes de estabilizar a wave. Priorize last hit, controle de wave e recall timing. Roam só deve acontecer se a wave estiver empurrada ou se o ganho for muito claro.`,
+      training: `Faça 3 partidas com meta de 70+ CS aos 10 minutos. Se for matchup difícil como ${matchup}, a meta mínima é 60+ sem morrer por ganância.`,
+      next_step: `Na próxima partida, olhe seu CS aos 5 e aos 10 minutos. Se estiver abaixo do ritmo, pare de forçar troca e volte para farm seguro.`,
+      biggest_mistake: "Perda de recurso básico na fase de rotas.",
       recurring_pattern:
-        "Jogar no escuro e tomar decisões com pouca informação.",
-      goal_title: "Aumentar controle de visão",
+        "Trocar, rotacionar ou lutar antes de consolidar wave e farm.",
+      goal_title: "Subir CS aos 10 minutos",
       goal_description:
-        "Na próxima partida de LoL, compre pink antes do primeiro objetivo e use wards antes de avançar no rio ou jungle.",
-    };
+        "Nas próximas 3 partidas, buscar 70+ CS aos 10min em matchup normal ou 60+ em matchup difícil, sem morrer por wave.",
+    });
   }
 
-  if (lowCs10) {
-    return {
-      diagnosis: "Seu farm aos 10 minutos está abaixo do ideal.",
-      analysis:
-        "CS baixo atrasa item, reduz pressão de lane e diminui sua capacidade de influenciar objetivos no mid game.",
-      correction:
-        "Priorize last hit, evite trocas desnecessárias em wave ruim e organize recalls sem perder ondas grandes.",
-      training:
-        "Treine 10 minutos de last hit em ferramenta de treino e jogue 5 partidas com meta mínima de 65 de CS aos 10 minutos.",
-      next_step:
-        "Na próxima partida, sua meta principal é farmar melhor até os 10 minutos, mesmo que isso reduza lutas forçadas.",
-      biggest_mistake: "Farm baixo na fase de rotas.",
-      recurring_pattern:
-        "Trocar ou rotacionar sem antes garantir recurso básico de ouro e experiência.",
-      goal_title: "Melhorar CS aos 10 minutos",
+  if (lol.visionScore !== null && lol.visionScore > 0 && lol.visionScore < 18) {
+    rules.push({
+      priority: 82,
+      diagnosis: `Seu vision score foi baixo (${lol.visionScore}). Isso sugere pouca preparação de mapa e baixa capacidade de antecipar rotação inimiga.`,
+      analysis: `Visão baixa aumenta mortes evitáveis, dificulta objetivo e deixa suas decisões dependentes de reação. Para executar ${winCondition}, você precisa de informação antes de lutar.`,
+      correction: `Compre controle ward em resets importantes e posicione visão 60s antes de objetivo. Se estiver sem visão lateral, jogue mais próximo da sua equipe ou da wave segura.`,
+      training: `Nas próximas 3 partidas, coloque uma controle ward antes de cada objetivo grande e revise no pós-jogo se você morreu em área sem visão.`,
+      next_step: `Na próxima partida, compre controle ward no primeiro reset possível e antes de todo objetivo relevante.`,
+      biggest_mistake: "Pouca preparação de visão para decisões de mapa.",
+      recurring_pattern: "Entrar ou lutar sem informação suficiente.",
+      goal_title: "Preparar visão antes de lutar",
       goal_description:
-        "Na próxima partida de LoL, jogue a lane com foco em atingir pelo menos 65 de CS aos 10 minutos.",
-    };
+        "Comprar controle ward em todo reset importante e posicionar visão 60s antes de dragão, arauto ou barão por 3 partidas.",
+    });
   }
 
-  if (manyDeaths || lostLane) {
-    return {
-      diagnosis:
-        "A partida indica perda de consistência na lane ou excesso de mortes.",
-      analysis:
-        "Muitas mortes reduzem tempo ativo no mapa, entregam ouro e dificultam jogar sua condição de vitória.",
-      correction:
-        "Jogue com mais respeito aos power spikes inimigos, controle wave perto de zona segura e evite all-in sem informação do jungle.",
-      training:
-        "Nas próximas 5 partidas, limite suas mortes na lane a no máximo 2 antes dos 14 minutos.",
-      next_step:
-        "Na próxima partida, jogue os primeiros 10 minutos priorizando wave, vida e leitura do jungle.",
-      biggest_mistake: "Morrer demais ou perder lane sem estabilizar.",
-      recurring_pattern:
-        "Forçar jogadas antes de ter condição real de luta.",
-      goal_title: "Estabilizar a fase de rotas",
+  if (lol.deaths >= 7) {
+    rules.push({
+      priority: 78,
+      diagnosis: `Você morreu ${lol.deaths} vezes. O volume de mortes ficou alto e provavelmente reduziu sua consistência, mesmo que você tenha conseguido participar de abates.`,
+      analysis: `Muitas mortes diminuem tempo ativo no mapa, entregam ouro, quebram wave timing e impedem que você converta vantagem. Em ranked, consistência vale mais do que jogadas explosivas isoladas.`,
+      correction: `Depois da segunda morte, mude o plano: jogue mais com visão, evite side avançado sem informação e pare de iniciar lutas sem vantagem numérica ou recurso.`,
+      training: `Por 5 partidas, use uma regra simples: se morrer 2 vezes antes de 15 minutos, sua prioridade vira farm seguro, visão e luta apenas com equipe.`,
+      next_step: `Na próxima partida, sua meta é terminar com no máximo 5 mortes.`,
+      biggest_mistake: "Excesso de mortes e perda de tempo ativo no mapa.",
+      recurring_pattern: "Forçar jogadas após ficar vulnerável ou sem visão.",
+      goal_title: "Reduzir mortes evitáveis",
       goal_description:
-        "Na próxima partida de LoL, limite suas mortes antes dos 14 minutos e priorize wave, vida e leitura do jungle.",
-    };
+        "Nas próximas 5 partidas, terminar com no máximo 5 mortes e revisar toda morte antes de objetivo ou sem visão.",
+    });
   }
 
-  return {
-    diagnosis:
-      "A partida não mostra um erro crítico óbvio pelos dados registrados.",
-    analysis:
-      "Isso pode indicar uma partida estável ou falta de dados mais específicos sobre o momento decisivo.",
-    correction:
-      "Use as anotações pós-jogo para identificar o minuto em que a partida mudou e qual decisão mais impactou o resultado.",
-    training:
-      "Faça review de uma luta ou objetivo decisivo e responda: eu tinha visão, prioridade e condição de vitória?",
-    next_step:
-      "Na próxima partida, registre o momento exato do erro mais caro para melhorar a precisão do diagnóstico.",
-    biggest_mistake: "Erro crítico não identificado pelos dados atuais.",
-    recurring_pattern:
-      "Necessidade de registrar mais contexto sobre lutas, objetivos e rotações.",
-    goal_title: "Registrar momento decisivo",
-    goal_description:
-      "Na próxima partida de LoL, anote o minuto exato em que a partida mudou e qual decisão causou isso.",
-  };
+  if (laneResult.includes("perd") || laneResult.includes("lose")) {
+    rules.push({
+      priority: 72,
+      diagnosis: `A fase de rotas foi registrada como negativa. Isso indica que o problema principal pode ter começado antes do mid game: wave, trade, matchup ou recall timing.`,
+      analysis: `Perder lane não significa perder o jogo, mas muda seu papel. Você precisa parar de jogar como condição primária e passar a jogar para estabilizar, cobrir mapa e permitir que outra condição de vitória carregue.`,
+      correction: `Quando perder a lane, reduza risco. Não tente recuperar tudo em uma luta. Controle wave perto da sua torre, comunique sumiços e jogue para objetivos com a equipe.`,
+      training: `Revise os 10 primeiros minutos da próxima partida e marque: primeira wave ruim, primeiro trade ruim e primeiro recall ruim.`,
+      next_step: `Na próxima partida, se a lane ficar ruim, jogue para perder menos em vez de tentar recuperar tudo de uma vez.`,
+      biggest_mistake: "Tentar recuperar lane perdida com jogadas forçadas.",
+      recurring_pattern:
+        "Transformar desvantagem pequena em desvantagem grande.",
+      goal_title: "Estabilizar lane difícil",
+      goal_description:
+        "Em matchups difíceis, jogar os 10 primeiros minutos sem morrer mais de 1 vez e manter wave segura.",
+    });
+  }
+
+  if (isTilted(base.mentalState)) {
+    rules.push({
+      priority: 70,
+      diagnosis: `Seu estado mental foi registrado como ${mentalLabel(base.mentalState)}. Isso pode ter afetado sua tomada de decisão e aumentado lutas impulsivas.`,
+      analysis: `Quando o mental cai, o jogador costuma buscar compensar erro com jogada imediata. Isso aumenta morte, força luta ruim e reduz leitura de mapa.`,
+      correction: `Depois de uma morte ou erro grande, faça uma regra de reset: respira, compra item, olha objetivo, olha wave e só decide depois. Não jogue a próxima jogada no automático.`,
+      training: `Use um checklist de 5 segundos após toda morte: por que morri, qual objetivo nasce, onde devo estar, o que não posso repetir.`,
+      next_step: `Na próxima partida, após cada morte, espere 5 segundos antes de pingar, digitar ou forçar jogada.`,
+      biggest_mistake: "Decisão emocional após erro ou desvantagem.",
+      recurring_pattern: "Tentar compensar erro com risco imediato.",
+      goal_title: "Reset mental após morte",
+      goal_description:
+        "Por 5 partidas, fazer checklist de 5 segundos após cada morte antes de tomar a próxima decisão.",
+    });
+  }
+
+  if (rules.length === 0) {
+    rules.push({
+      priority: 50,
+      diagnosis: `Sua partida com ${champion} em ${role} não mostrou um erro crítico claro pelos dados registrados. O foco deve ser transformar observações gerais em um ponto específico de melhoria.`,
+      analysis: `Quando não há um erro gritante, a evolução vem de consistência: farm, visão, objetivos, mortes evitáveis e execução da condição de vitória.`,
+      correction: `Escolha um único foco para a próxima partida. Não tente melhorar tudo ao mesmo tempo. A melhor prioridade agora é jogar em função de ${winCondition}.`,
+      training: `Nas próximas 3 partidas, registre com mais detalhe mortes, objetivos e momentos de decisão para o diagnóstico ficar mais preciso.`,
+      next_step: `Na próxima partida, defina antes do jogo qual é sua condição de vitória e revise se suas decisões seguiram esse plano.`,
+      biggest_mistake: "Falta de foco único mensurável para evolução.",
+      recurring_pattern: "Melhoria difusa sem métrica clara.",
+      goal_title: "Definir condição de vitória",
+      goal_description:
+        "Antes das próximas 3 partidas, escrever a condição de vitória e revisar se suas decisões seguiram esse plano.",
+    });
+  }
+
+  return pickBestRule(rules);
 }
 
-function generateTftReview(base: BaseMatchInput, tft: TftInput): ReviewOutput {
-  const placement = tft.placement ?? 0;
-  const badPlacement = placement >= 6;
-  const topFour = placement > 0 && placement <= 4;
-  const contested = normalize(tft.contested).includes("sim");
-  const playedForTop1 = normalize(tft.playedFor).includes("top 1");
-  const economyNote = normalize(tft.economyNotes);
+function generateTftReview(
+  base: BaseReviewInput,
+  tft: TftReviewInput
+): MatchReviewOutput {
+  const placement = tft.placement;
+  const composition = clean(tft.composition) || "sua composição";
+  const contested = lower(tft.contested);
+  const playedFor = lower(tft.playedFor);
+  const economyNotes = lower(tft.economyNotes);
+  const rolldownTiming = clean(tft.rolldownTiming) || "seu rolldown";
+  const levelTiming = clean(tft.levelTiming) || "seu timing de level";
 
-  if (badPlacement && economyNote.includes("rico")) {
-    return {
-      diagnosis:
-        "Você provavelmente segurou economia demais enquanto seu board estava fraco.",
-      analysis:
-        "No TFT, vida é recurso. Se você preserva ouro, mas perde vida demais, chega tarde ao estágio decisivo e perde margem para top 4.",
-      correction:
-        "Quando estiver fraco no estágio 3 ou início do 4, role para estabilizar antes de pensar em composição perfeita.",
-      training:
-        "Nas próximas 5 partidas, faça uma checagem no 3-2 e 4-1: meu board vence pelo menos metade do lobby?",
-      next_step:
-        "Na próxima partida, se estiver abaixo de 60 de vida no 3-5 com board fraco, considere estabilizar antes.",
-      biggest_mistake: "Greedar economia com board fraco.",
-      recurring_pattern:
-        "Valorizar ouro demais e vida de menos em lobby agressivo.",
-      goal_title: "Estabilizar antes de perder vida demais",
+  const rules: ReviewRule[] = [];
+
+  if (placement !== null && placement >= 5) {
+    rules.push({
+      priority: 95,
+      diagnosis: `Você terminou em ${placement}º lugar, fora do Top 4. O foco principal deve ser entender se a derrota veio de board fraco, economia mal convertida, rolldown atrasado ou composição contestada.`,
+      analysis: `No TFT, bottom 4 geralmente acontece quando você demora para estabilizar ou insiste em um plano que o lobby não permite. A comp ${composition} precisava de um spike claro de força antes de perder HP demais.`,
+      correction: `Defina seu ponto de estabilização antes do stage 4. Se estiver perdendo muito HP, o objetivo deixa de ser top 1 e vira top 4: rolar antes, jogar board mais forte e aceitar transição.`,
+      training: `Nas próximas 5 partidas, ao chegar no 3-2 e 4-1, responda: estou forte, médio ou fraco? Se estiver fraco, priorize estabilizar em vez de economizar demais.`,
+      next_step: `Na próxima partida, defina no 3-2 se você está jogando para preservar HP ou para escalar.`,
+      biggest_mistake: "Demorar para estabilizar e perder HP demais.",
+      recurring_pattern: "Jogar para plano ideal mesmo quando o lobby exige top 4.",
+      goal_title: "Estabilizar antes de perder HP crítico",
       goal_description:
-        "Na próxima partida de TFT, se estiver abaixo de 60 de vida no 3-5 com board fraco, role para estabilizar.",
-    };
+        "Nas próximas 5 partidas, avaliar força do board no 3-2 e 4-1; se estiver fraco, rolar para estabilizar antes de cair abaixo de 40 HP.",
+    });
   }
 
-  if (badPlacement && contested) {
-    return {
-      diagnosis:
-        "Você insistiu em uma direção contestada e perdeu força relativa no lobby.",
-      analysis:
-        "Quando muitas pessoas disputam as mesmas unidades, seu spike atrasa e o custo para estabilizar aumenta.",
-      correction:
-        "Faça scouting antes do roll down e prepare uma linha alternativa com itens compatíveis.",
-      training:
-        "Em 5 partidas, faça scouting obrigatório antes de decidir composição final no estágio 3-2 e 4-1.",
-      next_step:
-        "Na próxima partida, se duas ou mais pessoas contestarem sua comp, avalie pivot antes de gastar todo o ouro.",
-      biggest_mistake: "Insistir em composição contestada.",
-      recurring_pattern:
-        "Falta de scouting antes de comprometer economia e direção.",
-      goal_title: "Scouting antes de fechar composição",
+  if (contested.includes("sim") || contested.includes("muito") || contested.includes("2")) {
+    rules.push({
+      priority: 90,
+      diagnosis: `Sua composição estava contestada. Isso reduz chance de completar upgrades e exige scouting ou transição mais cedo.`,
+      analysis: `Quando 2+ jogadores disputam a mesma linha, insistir sem vantagem de itens, HP ou economia aumenta o risco de bottom 4. O problema não é só a comp, é a falta de adaptação ao lobby.`,
+      correction: `No stage 3, faça scouting ativo. Se houver muitos jogadores na mesma direção, prepare plano B usando seus itens principais e unidades que aparecerem naturalmente.`,
+      training: `Nas próximas 5 partidas, faça scout obrigatório no 3-2 e 4-1. Anote se sua comp tem 0, 1 ou 2+ contestando.`,
+      next_step: `Na próxima partida, se houver 2+ jogadores na sua comp no 3-2, prepare transição antes do rolldown principal.`,
+      biggest_mistake: "Insistir em composição contestada sem plano B.",
+      recurring_pattern: "Baixa adaptação ao lobby.",
+      goal_title: "Scoutar comp contestada",
       goal_description:
-        "Na próxima partida de TFT, faça scouting no 3-2 e 4-1 antes de comprometer ouro em uma composição.",
-    };
+        "Por 5 partidas, scoutar no 3-2 e 4-1; se 2+ jogadores contestarem sua comp, preparar plano B antes do rolldown.",
+    });
   }
 
-  if (badPlacement) {
-    return {
-      diagnosis:
-        "A partida indica dificuldade de estabilização antes do late game.",
-      analysis:
-        "Bottom 4 geralmente vem de transição atrasada, board fraco ou decisão ruim de level/roll.",
-      correction:
-        "Identifique mais cedo se você está jogando para top 4 ou top 1 e ajuste risco conforme vida, ouro e força do lobby.",
-      training:
-        "Revise o estágio 3-5 e 4-1 das próximas partidas e anote se você deveria ter rolado, upado ou pivotado.",
-      next_step:
-        "Na próxima partida, defina no 3-2 se você está forte para economizar ou fraco para estabilizar.",
-      biggest_mistake: "Estabilização tardia.",
-      recurring_pattern:
-        "Demora para adaptar economia, level e direção à força real do lobby.",
-      goal_title: "Decidir plano no estágio 3-2",
+  if (economyNotes.includes("fraco") || economyNotes.includes("quebrei") || economyNotes.includes("pobre")) {
+    rules.push({
+      priority: 84,
+      diagnosis: `Suas notas indicam problema de economia. Isso provavelmente afetou timing de level, rolldown e qualidade final do board.`,
+      analysis: `Economia ruim em TFT limita opções. Você rola menos, sobe level atrasado e tem menos margem para corrigir composição. O impacto aparece principalmente no stage 4.`,
+      correction: `Controle melhor seus intervalos de economia. Evite rolar pequenas quantidades sem objetivo. Role quando houver spike claro: completar pares, estabilizar board ou subir qualidade no timing correto.`,
+      training: `Nas próximas 5 partidas, anote seu gold no 3-2, 4-1 e 4-5. O objetivo é saber se você está quebrando economia sem ganhar força real.`,
+      next_step: `Na próxima partida, só faça rolldown grande se tiver objetivo claro: estabilizar, completar pares ou subir spike da composição.`,
+      biggest_mistake: "Gastar economia sem converter em força real.",
+      recurring_pattern: "Rolldown sem plano claro de spike.",
+      goal_title: "Converter economia em força",
       goal_description:
-        "Na próxima partida de TFT, defina no 3-2 se você vai preservar economia, rolar para estabilizar ou preparar pivot.",
-    };
+        "Nas próximas 5 partidas, anotar gold no 3-2, 4-1 e 4-5 e só rolar quando houver spike claro de força.",
+    });
   }
 
-  if (topFour && playedForTop1) {
-    return {
-      diagnosis:
-        "Você alcançou top 4, mas talvez tenha faltado conversão para top 1.",
-      analysis:
-        "Quando o objetivo é ganhar lobby, o detalhe passa a ser posicionamento, upgrades finais, scouting e itemização fina.",
-      correction:
-        "No late game, faça scouting a cada round e ajuste posicionamento contra os principais carries inimigos.",
-      training:
-        "Nas próximas partidas top 4, revise os últimos 3 rounds e anote se perdeu por posicionamento, cap de board ou item.",
-      next_step:
-        "Na próxima partida em top 4, foque em scouting e posicionamento antes de cada round.",
-      biggest_mistake: "Falta de refinamento no late game.",
-      recurring_pattern:
-        "Boa base de jogo, mas precisa melhorar conversão de vantagem.",
-      goal_title: "Melhorar scouting no late game",
+  if (playedFor.includes("top 1") && placement !== null && placement >= 5) {
+    rules.push({
+      priority: 82,
+      diagnosis: `Você tentou jogar para Top 1, mas terminou em ${placement}º. Isso indica que o plano foi ambicioso demais para a força real do board.`,
+      analysis: `Jogar para Top 1 exige HP, economia, itens e direção fortes. Se esses fatores não existem, insistir em cap alto pode virar bottom 4. Em muitos lobbies, a decisão correta é jogar para Top 4.`,
+      correction: `Quando estiver fraco ou com HP baixo, simplifique: board mais forte agora, upgrades imediatos e posicionamento seguro. Não segure economia para uma versão perfeita da comp.`,
+      training: `Nas próximas 5 partidas, decida no stage 4: estou jogando para Top 4 ou Top 1? Essa decisão deve ser baseada em HP, board, itens e economia.`,
+      next_step: `Na próxima partida, se chegar fraco no stage 4, jogue para Top 4 e não para cap máximo.`,
+      biggest_mistake: "Jogar para Top 1 sem base suficiente.",
+      recurring_pattern: "Ambição de cap alto quando o jogo pede preservação.",
+      goal_title: "Escolher Top 4 ou Top 1",
       goal_description:
-        "Na próxima partida de TFT em top 4, faça scouting antes de cada round e ajuste posicionamento contra os carries inimigos.",
-    };
+        "No stage 4 das próximas 5 partidas, definir se o plano é Top 4 ou Top 1 com base em HP, economia, itens e força do board.",
+    });
   }
 
-  return {
-    diagnosis:
-      "A partida parece estável pelos dados registrados.",
-    analysis:
-      "Para aumentar a precisão, registre vida por estágio, momento exato de roll e se o lobby estava agressivo.",
-    correction:
-      "Use o review para identificar se sua decisão principal foi economia, level, roll ou pivot.",
-    training:
-      "Após cada partida, anote: meu maior erro foi economia, direção, item, scouting ou posicionamento?",
-    next_step:
-      "Na próxima partida, registre o momento em que decidiu sua composição final.",
-    biggest_mistake: "Erro crítico não identificado pelos dados atuais.",
-    recurring_pattern:
-      "Necessidade de registrar mais detalhes sobre estágios e decisões de economia.",
-    goal_title: "Registrar decisão de composição",
-    goal_description:
-      "Na próxima partida de TFT, anote o estágio em que decidiu sua composição final e por quê.",
-  };
+  if (isTilted(base.mentalState)) {
+    rules.push({
+      priority: 70,
+      diagnosis: `Seu estado mental foi registrado como ${mentalLabel(base.mentalState)}. Em TFT, isso costuma gerar rolldown apressado, troca de plano sem scouting ou tilt após sequência de derrotas.`,
+      analysis: `O mental ruim faz o jogador abandonar fundamentos: economia, scouting, posicionamento e força relativa do lobby. Isso transforma um possível top 4 em bottom 4.`,
+      correction: `Quando perder duas rodadas seguidas forte, pare e avalie: estou fraco por board, item, level ou posicionamento? Só depois decida se rola, sobe level ou muda posicionamento.`,
+      training: `Nas próximas 5 partidas, após perder duas lutas seguidas, faça uma pausa de 10 segundos para scoutar antes de gastar gold.`,
+      next_step: `Na próxima partida, não faça rolldown imediatamente após tilt. Scout antes.`,
+      biggest_mistake: "Tomar decisão econômica sob tilt.",
+      recurring_pattern: "Rolldown ou transição emocional após sequência ruim.",
+      goal_title: "Scoutar antes de rolar tiltado",
+      goal_description:
+        "Por 5 partidas, após perder duas rodadas seguidas, scoutar o lobby antes de gastar gold.",
+    });
+  }
+
+  if (rules.length === 0) {
+    rules.push({
+      priority: 50,
+      diagnosis: `A partida com ${composition} não mostrou um erro único dominante pelos dados registrados. O foco deve ser melhorar leitura de lobby, economia e timing de spike.`,
+      analysis: `Quando não há um erro claro, TFT exige disciplina de processo: scouting, economia, itens, level e posicionamento. O review melhora muito quando você registra HP, gold e força do board por stage.`,
+      correction: `Escolha um ponto de controle: 3-2, 4-1 e 5-1. Em cada um, avalie força do board, economia e direção de composição.`,
+      training: `Nas próximas 5 partidas, anote no 3-2 e no 4-1: HP, gold, level, board forte/médio/fraco e comp contestada.`,
+      next_step: `Na próxima partida, faça scout no 3-2 e defina se continua na comp ou prepara transição.`,
+      biggest_mistake: "Falta de métrica clara para avaliar força do board.",
+      recurring_pattern: "Decisões tomadas sem leitura estruturada do lobby.",
+      goal_title: "Criar checkpoints de lobby",
+      goal_description:
+        "Nas próximas 5 partidas, anotar HP, gold, level, força do board e contestação no 3-2 e no 4-1.",
+    });
+  }
+
+  return pickBestRule(rules);
 }
 
 function generateValorantReview(
-  base: BaseMatchInput,
-  valorant: ValorantInput
-): ReviewOutput {
-  const manyFirstDeaths = valorant.firstDeaths >= 4;
-  const lowImpact =
-    valorant.acs !== null && valorant.acs > 0 && valorant.acs < 170;
-  const negativeKd = valorant.deaths > valorant.kills;
-  const utilityNotes = normalize(valorant.utilityNotes);
-  const communicationNotes = normalize(valorant.communicationNotes);
+  base: BaseReviewInput,
+  valorant: ValorantReviewInput
+): MatchReviewOutput {
+  const agent = clean(valorant.agent) || "seu agente";
+  const agentRole = clean(valorant.agentRole) || "sua função";
+  const map = clean(valorant.map) || "o mapa";
+  const utilityNotes = lower(valorant.utilityNotes);
+  const communicationNotes = lower(valorant.communicationNotes);
 
-  if (manyFirstDeaths) {
-    return {
-      diagnosis:
-        "Você morreu cedo demais em muitos rounds e reduziu o impacto do time.",
-      analysis:
-        "First deaths em excesso quebram setups, dificultam trade e deixam o time jogando retake ou ataque em desvantagem.",
-      correction:
-        "Evite abrir contato sem trade possível. Use utilitário antes do peek e jogue mais próximo de um companheiro.",
-      training:
-        "Em 5 partidas, sua meta é morrer primeiro no máximo 3 vezes. Revise todo round em que você foi o primeiro a morrer.",
-      next_step:
-        "Na próxima partida, antes de abrir qualquer pixel, pergunte: alguém consegue me trocar?",
-      biggest_mistake: "Excesso de first deaths.",
-      recurring_pattern:
-        "Tomar primeiro contato sem suporte, utilitário ou plano de saída.",
+  const rules: ReviewRule[] = [];
+
+  if (valorant.firstDeaths >= 4) {
+    rules.push({
+      priority: 100,
+      diagnosis: `Você teve ${valorant.firstDeaths} first deaths. Esse é provavelmente o erro mais caro da partida, porque coloca seu time em desvantagem numérica logo no início dos rounds.`,
+      analysis: `Em Valorant, morrer primeiro sem trade muda completamente o round. Como ${agentRole}, você precisa gerar espaço, informação ou utilidade, mas não entregar vantagem de graça.`,
+      correction: `Evite ser primeiro contato seco. Entre com utilitário, peça trade, jogue segundo contato ou recue após pegar informação. Se for entry, comunique o timing da entrada antes de avançar.`,
+      training: `Nas próximas 5 partidas, conte seus first deaths. A meta é no máximo 2 por partida, exceto rounds de entrada coordenada com trade claro.`,
+      next_step: `Na próxima partida com ${agent}, não tome primeiro contato sem trade combinado.`,
+      biggest_mistake: "Morrer primeiro sem troca garantida.",
+      recurring_pattern: "Contato inicial arriscado sem utilitário ou suporte.",
       goal_title: "Reduzir first deaths",
       goal_description:
-        "Na próxima partida de Valorant, morra primeiro no máximo 3 vezes e só abra contato quando houver trade ou utilitário.",
-    };
+        "Nas próximas 5 partidas, limitar first deaths a no máximo 2 e só entrar primeiro com utilitário ou trade combinado.",
+    });
   }
 
-  if (utilityNotes.includes("tarde") || utilityNotes.includes("pouco")) {
-    return {
-      diagnosis:
-        "Seu uso de utilitário parece estar atrasado ou abaixo do necessário.",
-      analysis:
-        "Em Valorant, utilitário define espaço, entrada, retake e sobrevivência. Usar tarde demais reduz impacto mesmo acertando tiro.",
-      correction:
-        "Planeje seu utilitário antes do round começar e use skills para ganhar espaço, não só para reagir depois.",
-      training:
-        "Escolha um mapa e treine 3 setups simples de utilitário para ataque e defesa.",
-      next_step:
-        "Na próxima partida, defina antes de cada round qual utilitário será usado no primeiro contato.",
-      biggest_mistake: "Uso atrasado ou fraco de utilitário.",
-      recurring_pattern:
-        "Jogar mais no improviso do que com plano de round.",
-      goal_title: "Usar utilitário com plano",
+  if (valorant.acs !== null && valorant.acs > 0 && valorant.acs < 170) {
+    rules.push({
+      priority: 88,
+      diagnosis: `Seu ACS foi baixo (${valorant.acs}). Isso sugere baixo impacto médio por round, seja por dano, trade, entrada, sobrevivência ou uso de utilitário.`,
+      analysis: `ACS baixo não significa apenas pouca kill. Pode indicar que você está chegando tarde, morrendo cedo, evitando duelo necessário ou usando utilitário sem conversão.`,
+      correction: `Busque impacto por round: dano útil, trade, entrada coordenada, utilitário que força espaço ou sobrevivência para retake. Não jogue rounds inteiros sem influenciar zona importante do mapa.`,
+      training: `Nas próximas 5 partidas, revise 3 rounds perdidos e responda: causei dano, troquei alguém, usei utilitário com intenção ou morri sem impacto?`,
+      next_step: `Na próxima partida em ${map}, escolha uma zona do mapa para disputar impacto em todo round armado.`,
+      biggest_mistake: "Baixo impacto médio por round.",
+      recurring_pattern: "Rounds jogados sem dano, trade ou utilidade decisiva.",
+      goal_title: "Aumentar impacto por round",
       goal_description:
-        "Na próxima partida de Valorant, defina antes de cada round qual utilitário será usado para ganhar espaço ou segurar avanço.",
-    };
+        "Nas próximas 5 partidas, revisar 3 rounds perdidos e identificar se houve dano, trade, utilitário útil ou morte sem impacto.",
+    });
   }
 
-  if (communicationNotes.includes("pouco") || communicationNotes.includes("sem")) {
-    return {
-      diagnosis:
-        "A comunicação registrada indica baixa troca de informação útil.",
-      analysis:
-        "Comunicação objetiva melhora rotação, retake, trade e leitura do adversário. Pouca call faz o time jogar com informação incompleta.",
-      correction:
-        "Faça calls curtas: posição, dano, utilitário gasto, número de inimigos e intenção de rotação.",
-      training:
-        "Em 5 partidas, pratique calls de até 3 segundos sem reclamar ou explicar demais.",
-      next_step:
-        "Na próxima partida, comunique toda informação de contato em formato simples: onde, quantos, dano e intenção.",
-      biggest_mistake: "Comunicação insuficiente.",
-      recurring_pattern:
-        "Guardar informação ou comunicar tarde demais.",
-      goal_title: "Melhorar calls objetivas",
+  if (valorant.deaths >= 18) {
+    rules.push({
+      priority: 82,
+      diagnosis: `Você morreu ${valorant.deaths} vezes. O número é alto e pode indicar exposição excessiva, retakes mal coordenados ou duelos repetidos em desvantagem.`,
+      analysis: `Morrer muito reduz sua presença em clutch, defesa de spike e retake. Mesmo com kills, excesso de mortes pode quebrar economia e deixar seu time jogando rounds incompletos.`,
+      correction: `Após morrer duas vezes no mesmo tipo de situação, mude o padrão: troque posição, jogue mais recuado, peça flash/smoke ou pare de repetir o mesmo duelo.`,
+      training: `Nas próximas 5 partidas, marque suas mortes por categoria: primeiro contato, retake, lurk, pós-plant, rotação ou duelo desnecessário.`,
+      next_step: `Na próxima partida, se morrer duas vezes no mesmo lugar, mude imediatamente sua posição ou timing.`,
+      biggest_mistake: "Repetir exposição e morrer em padrões parecidos.",
+      recurring_pattern: "Insistir no mesmo duelo ou posição após ser punido.",
+      goal_title: "Mapear mortes repetidas",
       goal_description:
-        "Na próxima partida de Valorant, faça calls curtas sobre posição, quantidade, dano e intenção, sem explicar demais.",
-    };
+        "Por 5 partidas, classificar cada morte e mudar posição/timing se morrer duas vezes do mesmo jeito.",
+    });
   }
 
-  if (lowImpact || negativeKd) {
-    return {
-      diagnosis:
-        "A partida indica baixo impacto em duelos ou dificuldade para converter presença em vantagem.",
-      analysis:
-        "Baixo impacto pode vir de mira, posicionamento, entrada sem suporte ou escolha ruim de timing.",
-      correction:
-        "Melhore crosshair placement, jogue com trade e evite reposicionar para ângulos previsíveis.",
-      training:
-        "Faça 10 minutos de crosshair placement, 10 minutos de prefire e 1 deathmatch focado em não agachar no primeiro tiro.",
-      next_step:
-        "Na próxima partida, foque em sobreviver ao primeiro contato e jogar para trade.",
-      biggest_mistake: "Baixo impacto em contato.",
-      recurring_pattern:
-        "Duelos desfavoráveis ou entrada sem estrutura.",
-      goal_title: "Jogar para trade e sobreviver",
+  if (
+    utilityNotes.includes("tarde") ||
+    utilityNotes.includes("ruim") ||
+    utilityNotes.includes("não usei") ||
+    utilityNotes.includes("nao usei")
+  ) {
+    rules.push({
+      priority: 80,
+      diagnosis: `Suas notas indicam problema de utilitário. Isso reduz entrada, defesa, retake e controle de mapa.`,
+      analysis: `Utilitário em Valorant precisa ter intenção. Smoke atrasada, flash sem follow-up ou skill guardada demais pode perder timing de round.`,
+      correction: `Antes do round começar, defina o objetivo do seu utilitário: tomar espaço, negar avanço, atrasar entrada, facilitar retake ou proteger spike.`,
+      training: `Nas próximas 5 partidas, escolha 2 utilitários por half para usar com plano claro e depois revise se geraram espaço, dano, delay ou informação.`,
+      next_step: `Na próxima partida com ${agent}, defina antes do round qual utilitário abre sua primeira jogada.`,
+      biggest_mistake: "Utilitário usado sem timing ou intenção clara.",
+      recurring_pattern: "Guardar ou gastar utilitário sem conversão.",
+      goal_title: "Usar utilitário com intenção",
       goal_description:
-        "Na próxima partida de Valorant, foque em sobreviver ao primeiro contato e jogar próximo de alguém que possa trocar.",
+        "Nas próximas 5 partidas, definir antes do round o objetivo do primeiro utilitário: espaço, delay, informação, retake ou pós-plant.",
+    });
+  }
+
+  if (
+    communicationNotes.includes("pouco") ||
+    communicationNotes.includes("não") ||
+    communicationNotes.includes("nao") ||
+    communicationNotes.includes("ruim")
+  ) {
+    rules.push({
+      priority: 76,
+      diagnosis: `Suas notas indicam problema de comunicação. Isso reduz trades, retakes e leitura coletiva do round.`,
+      analysis: `Boa comunicação não é falar muito; é falar o necessário no timing certo: posição, dano, quantidade, utilitário usado e intenção.`,
+      correction: `Use calls curtas: onde viu, quanto dano deu, se vai recuar, se precisa de flash/smoke e qual plano para retake ou pós-plant.`,
+      training: `Nas próximas 5 partidas, faça pelo menos 3 calls úteis por round armado: posição, dano ou intenção.`,
+      next_step: `Na próxima partida, priorize calls curtas antes de retake e entrada.`,
+      biggest_mistake: "Comunicação insuficiente para coordenar o round.",
+      recurring_pattern: "Time joga sem informação clara de posição, dano ou intenção.",
+      goal_title: "Melhorar calls úteis",
+      goal_description:
+        "Por 5 partidas, fazer calls curtas de posição, dano ou intenção em todo round armado.",
+    });
+  }
+
+  if (isTilted(base.mentalState)) {
+    rules.push({
+      priority: 70,
+      diagnosis: `Seu estado mental foi registrado como ${mentalLabel(base.mentalState)}. Em FPS tático, isso costuma gerar peek emocional, spray forçado e retake sem coordenação.`,
+      analysis: `Quando o mental cai, você tende a acelerar decisões e buscar duelo de recuperação. Isso aumenta first deaths e rounds perdidos em sequência.`,
+      correction: `Depois de perder um clutch ou morrer cedo, jogue o próximo round com regra simples: sem peek seco nos primeiros 15 segundos.`,
+      training: `Nas próximas 5 partidas, após morrer cedo, use o round seguinte para jogar informação, trade ou utilitário, não duelo seco.`,
+      next_step: `Na próxima partida, depois de uma morte ruim, o próximo round deve começar com utilitário ou posição segura.`,
+      biggest_mistake: "Peek emocional após erro ou round perdido.",
+      recurring_pattern: "Tentar recuperar confiança com duelo apressado.",
+      goal_title: "Controlar peek emocional",
+      goal_description:
+        "Por 5 partidas, após morrer cedo, jogar o round seguinte sem peek seco nos primeiros 15 segundos.",
+    });
+  }
+
+  if (rules.length === 0) {
+    rules.push({
+      priority: 50,
+      diagnosis: `A partida com ${agent} em ${map} não mostrou um erro único dominante pelos dados registrados. O foco deve ser transformar sua função em impacto mensurável por round.`,
+      analysis: `Quando não há falha clara, Valorant exige consistência: trade, utilitário, comunicação, sobrevivência e controle de espaço. Como ${agentRole}, seu valor precisa aparecer no plano do round.`,
+      correction: `Defina antes de cada half qual será seu papel: abrir espaço, controlar área, iniciar contato, jogar trade, lurkar ou ancorar bomb.`,
+      training: `Nas próximas 5 partidas, revise 3 rounds e responda: qual era meu papel nesse round e eu executei?`,
+      next_step: `Na próxima partida, defina seu papel nos rounds armados antes da barreira cair.`,
+      biggest_mistake: "Falta de papel claro por round.",
+      recurring_pattern: "Impacto irregular por falta de plano antes do round.",
+      goal_title: "Definir papel por round",
+      goal_description:
+        "Nas próximas 5 partidas, escolher antes de cada round armado seu papel: entry, trade, controle, lurk, defesa ou retake.",
+    });
+  }
+
+  return pickBestRule(rules);
+}
+
+function generateFallbackReview(base: BaseReviewInput): MatchReviewOutput {
+  if (isTilted(base.mentalState)) {
+    return {
+      diagnosis: `Seu principal ponto de atenção foi o estado mental: ${mentalLabel(base.mentalState)}. Isso pode ter afetado decisão, consistência e execução.`,
+      analysis:
+        "Quando o mental está instável, o jogador tende a acelerar jogadas, ignorar informação e repetir erros por impulso.",
+      correction:
+        "Use uma regra simples: após erro grande, faça uma pausa curta, revise o objetivo da partida e escolha a próxima decisão com base em informação, não emoção.",
+      training:
+        "Por 5 partidas, anote toda decisão tomada logo após morte, derrota de round ou erro importante.",
+      next_step:
+        "Na próxima partida, depois de um erro grande, pare 5 segundos antes de tomar a próxima decisão.",
+      biggest_mistake: "Decisão emocional após erro.",
+      recurring_pattern: "Tentativa de compensar erro com jogada apressada.",
+      goal_title: "Reset mental após erro",
+      goal_description:
+        "Por 5 partidas, fazer pausa de 5 segundos após erro grande antes de tomar nova decisão.",
     };
   }
 
   return {
     diagnosis:
-      "A partida não mostra um erro crítico óbvio pelos dados registrados.",
+      "A partida foi registrada, mas os dados ainda não apontam um erro dominante. O foco deve ser melhorar a qualidade das informações registradas.",
     analysis:
-      "Para melhorar a precisão, registre rounds em que morreu primeiro, uso de utilitário e decisões de retake.",
+      "Quanto mais específicos forem os dados, melhor será o diagnóstico. Registre mortes, decisões críticas, objetivos, economia, utilitário e estado mental.",
     correction:
-      "Após a partida, escolha um round perdido e identifique se o erro foi mira, timing, utilitário, comunicação ou posicionamento.",
+      "Na próxima partida, escolha um foco principal antes de jogar e registre se você cumpriu ou não.",
     training:
-      "Faça um review curto de 1 round perdido por tomada de decisão.",
+      "Por 3 partidas, registre um erro caro, uma boa decisão e uma decisão que você faria diferente.",
     next_step:
-      "Na próxima partida, registre o motivo das suas 3 primeiras mortes.",
-    biggest_mistake: "Erro crítico não identificado pelos dados atuais.",
-    recurring_pattern:
-      "Necessidade de registrar mais contexto de rounds decisivos.",
-    goal_title: "Registrar motivo das primeiras mortes",
+      "Na próxima partida, escolha um foco único e anote se ele foi cumprido.",
+    biggest_mistake: "Falta de dados suficientes para diagnóstico preciso.",
+    recurring_pattern: "Registro genérico limita a qualidade do review.",
+    goal_title: "Melhorar qualidade do registro",
     goal_description:
-      "Na próxima partida de Valorant, anote o motivo das suas 3 primeiras mortes para identificar padrão.",
+      "Nas próximas 3 partidas, registrar um erro caro, uma boa decisão e uma decisão que faria diferente.",
   };
 }
 
-function normalize(value: string) {
-  return value.trim().toLowerCase();
+function pickBestRule(rules: ReviewRule[]): MatchReviewOutput {
+  const bestRule = [...rules].sort((a, b) => b.priority - a.priority)[0];
+
+  return {
+    diagnosis: bestRule.diagnosis,
+    analysis: bestRule.analysis,
+    correction: bestRule.correction,
+    training: bestRule.training,
+    next_step: bestRule.next_step,
+    biggest_mistake: bestRule.biggest_mistake,
+    recurring_pattern: bestRule.recurring_pattern,
+    goal_title: bestRule.goal_title,
+    goal_description: bestRule.goal_description,
+  };
+}
+
+function clean(value: string | null | undefined) {
+  return String(value ?? "").trim();
+}
+
+function lower(value: string | null | undefined) {
+  return clean(value).toLowerCase();
+}
+
+function isTilted(mentalState: string) {
+  return ["tiltado", "ansioso", "cansado"].includes(mentalState);
+}
+
+function mentalLabel(mentalState: string) {
+  const labels: Record<string, string> = {
+    focado: "focado",
+    neutro: "neutro",
+    cansado: "cansado",
+    tiltado: "tiltado",
+    ansioso: "ansioso",
+    confiante: "confiante",
+  };
+
+  return labels[mentalState] ?? mentalState;
 }
