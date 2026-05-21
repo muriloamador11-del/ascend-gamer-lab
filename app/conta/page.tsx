@@ -347,9 +347,7 @@ export default function AccountPage() {
                   <Crown className="h-6 w-6" />
                 </div>
 
-                <p className="text-xl font-black text-slate-950">
-                  Plano Free
-                </p>
+                <p className="text-xl font-black text-slate-950">Plano Free</p>
 
                 <p className="mt-2 text-sm leading-6 text-slate-500">
                   Você está usando a versão MVP com registro manual, dashboard,
@@ -425,6 +423,18 @@ export default function AccountPage() {
                   metas de treino. Não usa cheats, automações proibidas, leitura
                   de memória ou vantagem injusta.
                 </p>
+
+                <div className="mt-4 flex flex-col gap-3">
+                  <Button asChild variant="outline">
+                    <Link href="/privacidade">
+                      Ver política de privacidade
+                    </Link>
+                  </Button>
+
+                  <Button asChild variant="outline">
+                    <Link href="/termos">Ver termos de uso</Link>
+                  </Button>
+                </div>
               </div>
             </CardContent>
           </Card>
@@ -484,7 +494,10 @@ function GameProfileCard({ game }: { game: GameProfile }) {
       </div>
 
       <div className="space-y-3">
-        <InfoBox label="Rank atual" value={game.current_rank || "Não informado"} />
+        <InfoBox
+          label="Rank atual"
+          value={game.current_rank || "Não informado"}
+        />
         <InfoBox
           label="Rank desejado"
           value={game.goal_rank || "Não informado"}

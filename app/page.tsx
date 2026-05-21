@@ -245,8 +245,23 @@ export default function HomePage() {
           </div>
         </section>
 
-        <footer className="rounded-[2rem] border border-slate-200 bg-white/80 p-5 text-center text-sm text-slate-500 shadow-sm backdrop-blur">
-          Ascend Gamer Lab — coaching, review e evolução competitiva.
+        <footer className="rounded-[2rem] border border-slate-200 bg-white/80 p-5 shadow-sm backdrop-blur">
+          <div className="flex flex-col items-center justify-between gap-3 text-sm text-slate-500 sm:flex-row">
+            <p>Ascend Gamer Lab — coaching, review e evolução competitiva.</p>
+
+            <div className="flex items-center gap-4">
+              <Link
+                href="/privacidade"
+                className="font-semibold hover:text-sky-600"
+              >
+                Privacidade
+              </Link>
+
+              <Link href="/termos" className="font-semibold hover:text-sky-600">
+                Termos
+              </Link>
+            </div>
+          </div>
         </footer>
       </div>
     </main>

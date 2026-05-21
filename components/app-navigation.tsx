@@ -18,7 +18,7 @@ import { toast } from "sonner";
 import { Button } from "@/components/ui/button";
 import { supabase } from "@/lib/supabase/client";
 
-const hiddenRoutes = ["/", "/login", "/cadastro"];
+const hiddenRoutes = ["/", "/login", "/cadastro", "/privacidade", "/termos"];
 
 const navItems = [
   {
