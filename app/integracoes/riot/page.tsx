@@ -6,7 +6,6 @@ import { useRouter } from "next/navigation";
 import {
   ArrowLeft,
   CheckCircle2,
-  Clock,
   Download,
   Gamepad2,
   Link2,
@@ -168,6 +167,7 @@ export default function RiotIntegrationPage() {
     }
 
     const loadedAccounts = accountsData ?? [];
+
     setAccounts(loadedAccounts);
     setImportedMatches(importedData ?? []);
 
@@ -713,7 +713,9 @@ export default function RiotIntegrationPage() {
                   <Button
                     className="h-11 w-full"
                     disabled={
-                      isSearchingMatches || accounts.length === 0 || !selectedAccount
+                      isSearchingMatches ||
+                      accounts.length === 0 ||
+                      !selectedAccount
                     }
                     onClick={handleSearchMatches}
                   >
@@ -741,7 +743,8 @@ export default function RiotIntegrationPage() {
                 <div className="space-y-3">
                   {riotMatches.map((match) => {
                     const imported = isMatchImported(match.externalMatchId);
-                    const importing = importingMatchId === match.externalMatchId;
+                    const importing =
+                      importingMatchId === match.externalMatchId;
 
                     return (
                       <div
@@ -752,14 +755,17 @@ export default function RiotIntegrationPage() {
                           <div>
                             <div className="mb-2 flex flex-wrap items-center gap-2">
                               <Badge>{gameLabels[match.game]}</Badge>
+
                               <Badge variant="outline">
                                 {match.resultLabel}
                               </Badge>
+
                               {match.queueId ? (
                                 <Badge variant="outline">
                                   Queue {match.queueId}
                                 </Badge>
                               ) : null}
+
                               {imported ? (
                                 <Badge>
                                   <CheckCircle2 className="mr-1 h-3.5 w-3.5" />
@@ -839,9 +845,11 @@ export default function RiotIntegrationPage() {
                           ? "League of Legends"
                           : "Teamfight Tactics"}
                       </Badge>
+
                       {match.result_label ? (
                         <Badge variant="outline">{match.result_label}</Badge>
                       ) : null}
+
                       {match.queue_id ? (
                         <Badge variant="outline">Queue {match.queue_id}</Badge>
                       ) : null}
@@ -865,10 +873,11 @@ export default function RiotIntegrationPage() {
                     </p>
                   </div>
 
-                  <Badge>
-                    <CheckCircle2 className="mr-1 h-3.5 w-3.5" />
-                    Salva
-                  </Badge>
+                  <Button asChild variant="outline">
+                    <Link href={`/riot/partidas/${match.id}`}>
+                      Ver análise
+                    </Link>
+                  </Button>
                 </div>
               </div>
             ))}
