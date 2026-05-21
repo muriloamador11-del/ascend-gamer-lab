@@ -12,6 +12,18 @@ import {
   Trophy,
   UserRound,
 } from "lucide-react";
+import {
+  Bar,
+  BarChart,
+  CartesianGrid,
+  Cell,
+  Pie,
+  PieChart,
+  ResponsiveContainer,
+  Tooltip,
+  XAxis,
+  YAxis,
+} from "recharts";
 import { toast } from "sonner";
 
 import { Badge } from "@/components/ui/badge";
@@ -107,6 +119,8 @@ const mentalLabels: Record<string, string> = {
   confiante: "Confiante",
 };
 
+const chartColors = ["#0ea5e9", "#38bdf8", "#0369a1", "#94a3b8"];
+
 export default function DashboardPage() {
   const router = useRouter();
 
@@ -121,9 +135,7 @@ export default function DashboardPage() {
   const [completingGoalId, setCompletingGoalId] = useState<string | null>(null);
 
   const selectedGoals = useMemo(() => {
-    if (!playerProfile?.main_goal) {
-      return [];
-    }
+    if (!playerProfile?.main_goal) return [];
 
     return playerProfile.main_goal
       .split(",")
@@ -135,6 +147,76 @@ export default function DashboardPage() {
   const completedGoals = weeklyGoals.filter(
     (goal) => goal.status === "completed"
   );
+
+  const recentMatches = matches.slice(0, 5);
+
+  const gameChartData = useMemo(() => {
+    return Object.entries(gameLabels).map(([game, label]) => ({
+      name: shortGameName(label),
+      total: matches.filter((match) => match.game === game).length,
+    }));
+  }, [matches]);
+
+  const resultChartData = useMemo(() => {
+    const grouped = [
+      {
+        name: "Vitórias",
+        value: matches.filter((match) => match.result === "win").length,
+      },
+      {
+        name: "Derrotas",
+        value: matches.filter((match) => match.result === "loss").length,
+      },
+      {
+        name: "Top 4",
+        value: matches.filter((match) => match.result === "top_4").length,
+      },
+      {
+        name: "Bottom 4",
+        value: matches.filter((match) => match.result === "bottom_4").length,
+      },
+    ];
+
+    return grouped.filter((item) => item.value > 0);
+  }, [matches]);
+
+  const goalsChartData = useMemo(() => {
+    return [
+      {
+        name: "Ativas",
+        value: activeGoals.length,
+      },
+      {
+        name: "Concluídas",
+        value: completedGoals.length,
+      },
+    ].filter((item) => item.value > 0);
+  }, [activeGoals.length, completedGoals.length]);
+
+  const winRate = useMemo(() => {
+    const rankedResults = matches.filter((match) =>
+      ["win", "loss"].includes(match.result)
+    );
+
+    if (rankedResults.length === 0) return 0;
+
+    const wins = rankedResults.filter((match) => match.result === "win").length;
+
+    return Math.round((wins / rankedResults.length) * 100);
+  }, [matches]);
+
+  const topFourRate = useMemo(() => {
+    const tftResults = matches.filter((match) =>
+      ["top_4", "bottom_4"].includes(match.result)
+    );
+
+    if (tftResults.length === 0) return 0;
+
+    const topFour = tftResults.filter((match) => match.result === "top_4")
+      .length;
+
+    return Math.round((topFour / tftResults.length) * 100);
+  }, [matches]);
 
   useEffect(() => {
     loadDashboard();
@@ -190,8 +272,7 @@ export default function DashboardPage() {
       .from("matches")
       .select("id, game, result, rank_at_time, mental_state, created_at")
       .eq("user_id", user.id)
-      .order("created_at", { ascending: false })
-      .limit(5);
+      .order("created_at", { ascending: false });
 
     if (matchesError) {
       toast.error(matchesError.message);
@@ -203,8 +284,7 @@ export default function DashboardPage() {
       .from("weekly_goals")
       .select("*")
       .eq("user_id", user.id)
-      .order("created_at", { ascending: false })
-      .limit(6);
+      .order("created_at", { ascending: false });
 
     if (goalsError) {
       toast.error(goalsError.message);
@@ -258,8 +338,6 @@ export default function DashboardPage() {
     <main className="min-h-screen px-4 pb-28 pt-8 text-slate-900 sm:px-6 lg:px-8 xl:pb-8">
       <div className="mx-auto max-w-6xl space-y-6">
         <header className="overflow-hidden rounded-[2rem] border border-slate-200 bg-white/88 p-6 shadow-[0_18px_50px_rgba(15,23,42,0.08)] backdrop-blur-xl">
-          <div className="absolute inset-0 -z-10 bg-[radial-gradient(circle_at_top_left,rgba(14,165,233,0.14),transparent_26rem)]" />
-
           <div className="flex items-start gap-4">
             <div className="flex h-14 w-14 shrink-0 items-center justify-center rounded-2xl border border-sky-200 bg-sky-50 shadow-sm">
               <Gamepad2 className="h-7 w-7 text-sky-600" />
@@ -273,8 +351,8 @@ export default function DashboardPage() {
               </h1>
 
               <p className="mt-2 max-w-2xl text-sm leading-6 text-slate-500">
-                Acompanhe seus objetivos, jogos principais, partidas
-                registradas, diagnósticos e metas práticas da semana.
+                Acompanhe objetivos, jogos principais, partidas registradas,
+                diagnósticos, metas e gráficos de evolução.
               </p>
             </div>
           </div>
@@ -304,10 +382,104 @@ export default function DashboardPage() {
 
           <MetricCard
             icon={<Gamepad2 className="h-5 w-5" />}
-            label="Partidas recentes"
+            label="Partidas registradas"
             value={String(matches.length)}
-            description="Últimas partidas carregadas no painel."
+            description="Histórico total registrado no Ascend."
           />
+        </section>
+
+        <section>
+          <div className="mb-4">
+            <h2 className="text-2xl font-black tracking-tight text-slate-950">
+              Painel de evolução
+            </h2>
+            <p className="mt-1 text-sm text-slate-500">
+              Uma visão rápida do seu volume de jogo, resultados e metas.
+            </p>
+          </div>
+
+          <div className="grid gap-4 xl:grid-cols-4">
+            <EvolutionCard
+              label="Taxa de vitória"
+              value={matches.length > 0 ? `${winRate}%` : "0%"}
+              description="Baseada em partidas com vitória/derrota."
+            />
+
+            <EvolutionCard
+              label="Taxa de Top 4"
+              value={matches.length > 0 ? `${topFourRate}%` : "0%"}
+              description="Baseada em partidas de TFT registradas."
+            />
+
+            <EvolutionCard
+              label="Metas concluídas"
+              value={String(completedGoals.length)}
+              description="Quantidade total de metas finalizadas."
+            />
+
+            <EvolutionCard
+              label="Consistência"
+              value={matches.length >= 5 ? "Ativa" : "Inicial"}
+              description="Registre mais partidas para leitura melhor."
+            />
+          </div>
+        </section>
+
+        <section className="grid gap-6 lg:grid-cols-2">
+          <ChartCard title="Partidas por jogo" description="Volume registrado por modalidade.">
+            {matches.length > 0 ? (
+              <ResponsiveContainer width="100%" height={260}>
+                <BarChart data={gameChartData}>
+                  <CartesianGrid strokeDasharray="3 3" stroke="#e2e8f0" />
+                  <XAxis dataKey="name" stroke="#64748b" fontSize={12} />
+                  <YAxis stroke="#64748b" fontSize={12} allowDecimals={false} />
+                  <Tooltip
+                    contentStyle={{
+                      borderRadius: 16,
+                      border: "1px solid #e2e8f0",
+                      boxShadow: "0 12px 30px rgba(15,23,42,0.10)",
+                    }}
+                  />
+                  <Bar dataKey="total" radius={[12, 12, 0, 0]} fill="#0ea5e9" />
+                </BarChart>
+              </ResponsiveContainer>
+            ) : (
+              <EmptyChartMessage />
+            )}
+          </ChartCard>
+
+          <ChartCard title="Resultados" description="Distribuição dos resultados registrados.">
+            {resultChartData.length > 0 ? (
+              <ResponsiveContainer width="100%" height={260}>
+                <PieChart>
+                  <Pie
+                    data={resultChartData}
+                    dataKey="value"
+                    nameKey="name"
+                    innerRadius={62}
+                    outerRadius={92}
+                    paddingAngle={4}
+                  >
+                    {resultChartData.map((entry, index) => (
+                      <Cell
+                        key={entry.name}
+                        fill={chartColors[index % chartColors.length]}
+                      />
+                    ))}
+                  </Pie>
+                  <Tooltip
+                    contentStyle={{
+                      borderRadius: 16,
+                      border: "1px solid #e2e8f0",
+                      boxShadow: "0 12px 30px rgba(15,23,42,0.10)",
+                    }}
+                  />
+                </PieChart>
+              </ResponsiveContainer>
+            ) : (
+              <EmptyChartMessage />
+            )}
+          </ChartCard>
         </section>
 
         <section className="grid gap-6 lg:grid-cols-[1fr_360px]">
@@ -432,15 +604,46 @@ export default function DashboardPage() {
 
               <div className="rounded-3xl border border-slate-200 bg-gradient-to-br from-white to-sky-50/70 p-4 shadow-sm">
                 <p className="text-sm font-bold text-slate-950">
-                  Metas concluídas
+                  Metas
                 </p>
 
-                <p className="mt-2 text-4xl font-black text-slate-950">
-                  {completedGoals.length}
-                </p>
+                {goalsChartData.length > 0 ? (
+                  <ResponsiveContainer width="100%" height={180}>
+                    <PieChart>
+                      <Pie
+                        data={goalsChartData}
+                        dataKey="value"
+                        nameKey="name"
+                        innerRadius={44}
+                        outerRadius={66}
+                        paddingAngle={4}
+                      >
+                        {goalsChartData.map((entry, index) => (
+                          <Cell
+                            key={entry.name}
+                            fill={chartColors[index % chartColors.length]}
+                          />
+                        ))}
+                      </Pie>
+                      <Tooltip
+                        contentStyle={{
+                          borderRadius: 16,
+                          border: "1px solid #e2e8f0",
+                        }}
+                      />
+                    </PieChart>
+                  </ResponsiveContainer>
+                ) : (
+                  <p className="mt-2 text-sm leading-6 text-slate-500">
+                    Nenhuma meta criada ainda.
+                  </p>
+                )}
 
-                <p className="mt-2 text-sm leading-6 text-slate-500">
-                  Total recente de metas concluídas no histórico carregado.
+                <p className="text-sm leading-6 text-slate-500">
+                  {completedGoals.length} concluída
+                  {completedGoals.length === 1 ? "" : "s"} e{" "}
+                  {activeGoals.length} ativa
+                  {activeGoals.length === 1 ? "" : "s"}.
                 </p>
               </div>
             </CardContent>
@@ -493,7 +696,7 @@ export default function DashboardPage() {
             </CardHeader>
 
             <CardContent className="space-y-3">
-              {matches.map((match) => (
+              {recentMatches.map((match) => (
                 <Link
                   key={match.id}
                   href={`/partidas/${match.id}`}
@@ -522,7 +725,7 @@ export default function DashboardPage() {
                 </Link>
               ))}
 
-              {matches.length === 0 ? (
+              {recentMatches.length === 0 ? (
                 <p className="text-sm text-slate-500">
                   Nenhuma partida registrada ainda.
                 </p>
@@ -575,6 +778,55 @@ function MetricCard({
       <p className="text-sm font-medium text-slate-500">{label}</p>
       <p className="mt-1 text-3xl font-black text-slate-950">{value}</p>
       <p className="mt-2 text-sm leading-6 text-slate-500">{description}</p>
+    </div>
+  );
+}
+
+function EvolutionCard({
+  label,
+  value,
+  description,
+}: {
+  label: string;
+  value: string;
+  description: string;
+}) {
+  return (
+    <div className="rounded-3xl border border-sky-100 bg-gradient-to-br from-white to-sky-50/70 p-5 shadow-[0_12px_36px_rgba(14,165,233,0.08)]">
+      <p className="text-sm font-medium text-slate-500">{label}</p>
+      <p className="mt-2 text-4xl font-black text-slate-950">{value}</p>
+      <p className="mt-2 text-sm leading-6 text-slate-500">{description}</p>
+    </div>
+  );
+}
+
+function ChartCard({
+  title,
+  description,
+  children,
+}: {
+  title: string;
+  description: string;
+  children: React.ReactNode;
+}) {
+  return (
+    <Card>
+      <CardHeader>
+        <CardTitle>{title}</CardTitle>
+        <p className="mt-2 text-sm leading-6 text-slate-500">{description}</p>
+      </CardHeader>
+
+      <CardContent>{children}</CardContent>
+    </Card>
+  );
+}
+
+function EmptyChartMessage() {
+  return (
+    <div className="flex h-[260px] items-center justify-center rounded-3xl border border-slate-200 bg-slate-50/80 p-6 text-center">
+      <p className="text-sm leading-6 text-slate-500">
+        Registre partidas para gerar dados visuais de evolução.
+      </p>
     </div>
   );
 }
@@ -655,4 +907,10 @@ function formatDate(value: string) {
     day: "2-digit",
     month: "2-digit",
   }).format(date);
+}
+
+function shortGameName(game: string) {
+  if (game === "League of Legends") return "LoL";
+  if (game === "Teamfight Tactics") return "TFT";
+  return game;
 }
