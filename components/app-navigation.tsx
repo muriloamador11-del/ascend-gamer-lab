@@ -6,6 +6,7 @@ import {
   BarChart3,
   Gamepad2,
   Home,
+  Link2,
   ListChecks,
   LogOut,
   PlusCircle,
@@ -46,6 +47,12 @@ const navItems = [
     icon: Target,
     match: (pathname: string) => pathname.startsWith("/metas"),
   },
+  {
+  label: "Integrações",
+  href: "/integracoes/riot",
+  icon: Link2,
+  match: (pathname: string) => pathname.startsWith("/integracoes"),
+},
   {
     label: "Editar perfil",
     href: "/onboarding",
