@@ -11,6 +11,7 @@ import {
   PlusCircle,
   Target,
   UserCog,
+  UserRound,
 } from "lucide-react";
 import { toast } from "sonner";
 
@@ -50,6 +51,12 @@ const navItems = [
     href: "/onboarding",
     icon: UserCog,
     match: (pathname: string) => pathname === "/onboarding",
+  },
+  {
+    label: "Conta",
+    href: "/conta",
+    icon: UserRound,
+    match: (pathname: string) => pathname === "/conta",
   },
 ];
 
@@ -140,7 +147,7 @@ export function AppNavigation() {
       </aside>
 
       <nav className="fixed bottom-4 left-4 right-4 z-50 rounded-3xl border border-slate-200 bg-white/95 p-2 text-slate-900 shadow-[0_10px_30px_rgba(15,23,42,0.10)] backdrop-blur xl:hidden">
-        <div className="grid grid-cols-5 gap-1">
+        <div className="grid grid-cols-6 gap-1">
           {navItems.map((item) => {
             const Icon = item.icon;
             const isActive = item.match(pathname);
@@ -149,7 +156,7 @@ export function AppNavigation() {
               <Link
                 key={item.href}
                 href={item.href}
-                className={`flex flex-col items-center justify-center rounded-2xl px-2 py-2 text-[11px] transition ${
+                className={`flex flex-col items-center justify-center rounded-2xl px-2 py-2 text-[10px] transition ${
                   isActive
                     ? "bg-sky-50 text-sky-700"
                     : "text-slate-500 hover:bg-slate-50 hover:text-slate-900"
